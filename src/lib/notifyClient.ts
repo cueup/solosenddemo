@@ -27,20 +27,20 @@ async function callEdgeFunction(action: string, params: any): Promise<any> {
 }
 
 export const notifyClient = {
-  sendEmail: async (templateId: string, emailAddress: string, options?: any) => {
-    return { data: await callEdgeFunction('sendEmail', { templateId, emailAddress, options }) };
+  sendEmail: async (templateId: string, emailAddress: string, options?: any, apiKey?: string) => {
+    return { data: await callEdgeFunction('sendEmail', { templateId, emailAddress, options, apiKey }) };
   },
-  sendSms: async (templateId: string, phoneNumber: string, options?: any) => {
-    return { data: await callEdgeFunction('sendSms', { templateId, phoneNumber, options }) };
+  sendSms: async (templateId: string, phoneNumber: string, options?: any, apiKey?: string) => {
+    return { data: await callEdgeFunction('sendSms', { templateId, phoneNumber, options, apiKey }) };
   },
-  sendLetter: async (templateId: string, options: any) => {
-    return { data: await callEdgeFunction('sendLetter', { templateId, options }) };
+  sendLetter: async (templateId: string, options: any, apiKey?: string) => {
+    return { data: await callEdgeFunction('sendLetter', { templateId, options, apiKey }) };
   },
-  getNotificationById: async (notificationId: string) => {
-    return { data: await callEdgeFunction('getNotificationById', { notificationId }) };
+  getNotificationById: async (notificationId: string, apiKey?: string) => {
+    return { data: await callEdgeFunction('getNotificationById', { notificationId, apiKey }) };
   },
-  getNotifications: async (templateType?: string, status?: string, reference?: string, olderThan?: string) => {
-    return { data: await callEdgeFunction('getNotifications', { templateType, status, reference, olderThan }) };
+  getNotifications: async (templateType?: string, status?: string, reference?: string, olderThan?: string, apiKey?: string) => {
+    return { data: await callEdgeFunction('getNotifications', { templateType, status, reference, olderThan, apiKey }) };
   },
 };
 

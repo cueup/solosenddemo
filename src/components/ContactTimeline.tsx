@@ -14,7 +14,7 @@ interface Communication {
   content: string;
 }
 
-export function ContactTimeline({ contactName, onClose }: ContactTimelineProps) {
+export function ContactTimeline({ contactName, onClose, isInSidebar = false }: ContactTimelineProps & { isInSidebar?: boolean }) {
   const communications: Communication[] = [
     {
       id: '1',
@@ -110,8 +110,95 @@ export function ContactTimeline({ contactName, onClose }: ContactTimelineProps) 
     }
   };
 
+  if (isInSidebar) {
+    return (
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 h-full flex flex-col">
+        <div className="flex items-center justify-between p-6 border-b border-gray-200">
+          <div>
+            <h2 className="text-xl font-bold text-gray-900">Communication Timeline</h2>
+            <p className="text-gray-600 mt-1">{contactName}</p>
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-6">
+          <div className="space-y-4">
+            {communications.map((comm, index) => {
+              const Icon = getIcon(comm.type);
+              return (
+                <div key={comm.id} className="relative">
+                  {index !== communications.length - 1 && (
+                    <div className="absolute left-5 top-12 bottom-0 w-0.5 bg-gray-200" />
+                  )}
+
+                  <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 hover:shadow-sm transition-shadow">
+                    <div className="flex items-start gap-3">
+                      <div className={`p-2 rounded-lg ${getTypeColor(comm.type)} flex-shrink-0`}>
+                        <Icon size={16} />
+                      </div>
+
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-start justify-between gap-2 mb-1">
+                          <h3 className="font-semibold text-gray-900 text-sm">{comm.subject}</h3>
+                          <span className={`text-xs px-2 py-1 rounded-full capitalize ${getTypeColor(comm.type)}`}>
+                            {comm.type}
+                          </span>
+                        </div>
+                        <p className="text-xs text-gray-600 line-clamp-2 mb-2">{comm.content}</p>
+
+                        <div className="flex items-center gap-3 text-xs text-gray-500">
+                          <div className="flex items-center gap-1">
+                            <Clock size={12} />
+                            <span>
+                              {new Date(comm.date).toLocaleString('en-GB', {
+                                day: 'numeric',
+                                month: 'short',
+                                hour: '2-digit',
+                                minute: '2-digit'
+                              })}
+                            </span>
+                          </div>
+
+                          <div className="flex items-center gap-1">
+                            {getStatusIcon(comm.status)}
+                            <span className={
+                              comm.status === 'delivered' ? 'text-green-600' :
+                              comm.status === 'failed' ? 'text-red-600' :
+                              'text-blue-600'
+                            }>
+                              {getStatusText(comm.status)}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {communications.length === 0 && (
+            <div className="text-center py-8">
+              <MessageSquare size={32} className="mx-auto text-gray-300 mb-3" />
+              <p className="text-gray-500 font-medium text-sm">No communications yet</p>
+              <p className="text-xs text-gray-400 mt-1">
+                Send a message to start building this contact's timeline
+              </p>
+            </div>
+          )}
+        </div>
+
+        <div className="border-t border-gray-200 p-4 bg-gray-50">
+          <p className="text-xs text-gray-600 text-center">
+            <span className="font-semibold">{communications.length}</span> total communications
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-40 p-4">
       <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
         <div className="flex items-center justify-between p-6 border-b border-gray-200">
           <div>

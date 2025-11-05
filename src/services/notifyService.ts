@@ -10,10 +10,11 @@ export class NotifyService {
   async sendSms(
     templateId: string,
     phoneNumber: string,
-    options?: SendSmsOptions
+    options?: SendSmsOptions,
+    apiKey?: string
   ): Promise<NotificationResponse> {
     try {
-      const response = await notifyClient.sendSms(templateId, phoneNumber, options);
+      const response = await notifyClient.sendSms(templateId, phoneNumber, options, apiKey);
       return response.data;
     } catch (error: any) {
       console.error('Error sending SMS:', error);
@@ -24,10 +25,11 @@ export class NotifyService {
   async sendEmail(
     templateId: string,
     emailAddress: string,
-    options?: SendEmailOptions
+    options?: SendEmailOptions,
+    apiKey?: string
   ): Promise<NotificationResponse> {
     try {
-      const response = await notifyClient.sendEmail(templateId, emailAddress, options);
+      const response = await notifyClient.sendEmail(templateId, emailAddress, options, apiKey);
       return response.data;
     } catch (error: any) {
       console.error('Error sending email:', error);
@@ -37,10 +39,11 @@ export class NotifyService {
 
   async sendLetter(
     templateId: string,
-    options: SendLetterOptions
+    options: SendLetterOptions,
+    apiKey?: string
   ): Promise<NotificationResponse> {
     try {
-      const response = await notifyClient.sendLetter(templateId, options);
+      const response = await notifyClient.sendLetter(templateId, options, apiKey);
       return response.data;
     } catch (error: any) {
       console.error('Error sending letter:', error);

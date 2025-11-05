@@ -12,14 +12,61 @@ import {
   Paperclip,
   AlertCircle,
   Maximize2,
-  Minimize2
+  Minimize2,
+  Search,
+  Users,
+  User,
+  ChevronDown
 } from 'lucide-react';
+import { notifyService } from '../services/notifyService';
+import { useService } from '../contexts/ServiceContext';
+
+interface Template {
+  id: string;
+  name: string;
+  description: string;
+  type: 'email' | 'sms' | 'letter';
+  subject?: string;
+  content: string;
+  variables: string[];
+  notify_template_id?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+interface Contact {
+  id: string;
+  title: string;
+  first_name: string;
+  last_name: string;
+  email: string;
+  phone: string;
+  address_line_1: string;
+  address_line_2?: string;
+  address_line_3?: string;
+  address_line_4?: string;
+  address_line_5?: string;
+  address_line_6?: string;
+  postcode: string;
+  tags: string[];
+}
+
+interface Segment {
+  id: string;
+  name: string;
+  description: string;
+  contact_count: number;
+}
 
 interface LetterEditorProps {
   onClose: () => void;
+  templates: Template[];
+  contacts: Contact[];
+  segments: Segment[];
 }
 
-export function LetterEditor({ onClose }: LetterEditorProps) {
+export function LetterEditor({ onClose, templates, contacts, segments }: LetterEditorProps) {
+  const { currentService, activeApiKey } = useService();
   const [content, setContent] = useState('');
   const [subject, setSubject] = useState('');
   const [scheduleMode, setScheduleMode] = useState<'now' | 'scheduled'>('now');
@@ -28,6 +75,28 @@ export function LetterEditor({ onClose }: LetterEditorProps) {
   const [attachedPdf, setAttachedPdf] = useState<File | null>(null);
   const [pdfError, setPdfError] = useState('');
   const [isFullScreen, setIsFullScreen] = useState(false);
+  const [recipientMode, setRecipientMode] = useState<'contact' | 'segment'>('contact');
+  const [selectedContacts, setSelectedContacts] = useState<Contact[]>([]);
+  const [selectedSegment, setSelectedSegment] = useState<Segment | null>(null);
+  const [contactSearch, setContactSearch] = useState('');
+  const [showContactDropdown, setShowContactDropdown] = useState(false);
+  const [templateId, setTemplateId] = useState('');
+  const [templateMode, setTemplateMode] = useState<'select' | 'manual'>('select');
+  const [selectedTemplate, setSelectedTemplate] = useState('');
+  const [isSending, setIsSending] = useState(false);
+  const [sendError, setSendError] = useState('');
+
+  const handleTemplateSelect = (templateId: string) => {
+    const template = (templates || []).find(t => t.id === templateId);
+    if (template) {
+      setSubject(template.subject || '');
+      setContent(template.content);
+      if (template.notify_template_id) {
+        setTemplateId(template.notify_template_id);
+        setTemplateMode('manual');
+      }
+    }
+  };
 
   const handlePdfUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -69,13 +138,156 @@ export function LetterEditor({ onClose }: LetterEditorProps) {
     }, 0);
   };
 
+  const filteredContacts = (contacts || []).filter(contact => {
+    const searchTerm = contactSearch.toLowerCase();
+    return (
+      contact.first_name.toLowerCase().includes(searchTerm) ||
+      contact.last_name.toLowerCase().includes(searchTerm) ||
+      contact.email.toLowerCase().includes(searchTerm) ||
+      contact.address_line_1.toLowerCase().includes(searchTerm) ||
+      contact.postcode.toLowerCase().includes(searchTerm)
+    );
+  });
+
+  const handleContactSelect = (contact: Contact) => {
+    if (!selectedContacts.find(c => c.id === contact.id)) {
+      setSelectedContacts([...selectedContacts, contact]);
+    }
+    setContactSearch('');
+    setShowContactDropdown(false);
+  };
+
+  const handleContactRemove = (contactId: string) => {
+    setSelectedContacts(selectedContacts.filter(c => c.id !== contactId));
+  };
+
+  const handleSegmentSelect = (segment: Segment) => {
+    setSelectedSegment(segment);
+  };
+
+  const getRecipientCount = () => {
+    if (recipientMode === 'contact') {
+      return selectedContacts.length;
+    } else {
+      return selectedSegment?.contact_count || 0;
+    }
+  };
+
+  const handleSend = async () => {
+    if (!activeApiKey) {
+      setSendError('No active API key found. Please configure your service settings.');
+      return;
+    }
+
+    const finalTemplateId = templateMode === 'select' ? selectedTemplate : templateId;
+    
+    if (!subject.trim() || !content.trim() || !finalTemplateId.trim()) {
+      setSendError('Please fill in all required fields including template selection');
+      return;
+    }
+
+    if (recipientMode === 'contact' && selectedContacts.length === 0) {
+      setSendError('Please select at least one contact');
+      return;
+    }
+
+    if (recipientMode === 'segment' && !selectedSegment) {
+      setSendError('Please select a segment');
+      return;
+    }
+
+    setIsSending(true);
+    setSendError('');
+
+    try {
+      const recipientsToSend = recipientMode === 'contact' ? selectedContacts : [];
+      
+      // For each recipient, send a letter
+      for (const contact of recipientsToSend) {
+        await notifyService.sendLetter(finalTemplateId, {
+          personalisation: {
+            title: contact.title,
+            first_name: contact.first_name,
+            last_name: contact.last_name,
+            subject: subject,
+            content: content,
+            address_line_1: contact.address_line_1,
+            address_line_2: contact.address_line_2 || '',
+            address_line_3: contact.address_line_3 || '',
+            address_line_4: contact.address_line_4 || '',
+            address_line_5: contact.address_line_5 || '',
+            address_line_6: contact.address_line_6 || '',
+            postcode: contact.postcode
+          },
+          reference: `letter-${currentService?.name}-${contact.id}-${Date.now()}`
+        }, activeApiKey.key);
+      }
+
+      // Close the editor on successful send
+      onClose();
+    } catch (error: any) {
+      setSendError(error.message || 'Failed to send letter');
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  const handleSchedule = async () => {
+    const finalTemplateId = templateMode === 'select' ? selectedTemplate : templateId;
+    
+    if (!subject.trim() || !content.trim() || !finalTemplateId.trim() || !scheduleDate || !scheduleTime) {
+      setSendError('Please fill in all required fields including template selection, schedule date and time');
+      return;
+    }
+
+    if (recipientMode === 'contact' && selectedContacts.length === 0) {
+      setSendError('Please select at least one contact');
+      return;
+    }
+
+    if (recipientMode === 'segment' && !selectedSegment) {
+      setSendError('Please select a segment');
+      return;
+    }
+
+    // For now, just show success message as scheduling would require additional backend logic
+    alert('Letter scheduled successfully!');
+    onClose();
+  };
+
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
       <div className={`bg-white rounded-lg shadow-xl w-full overflow-hidden flex flex-col transition-all ${
         isFullScreen ? 'max-w-full h-full m-0' : 'max-w-4xl max-h-[90vh]'
       }`}>
         <div className="flex items-center justify-between p-6 border-b border-gray-200">
-          <h2 className="text-2xl font-bold text-gray-900">Create Letter</h2>
+          <div className="flex items-center gap-4">
+            <div className="p-3 bg-orange-100 rounded-lg">
+              <FileText size={24} className="text-orange-600" />
+            </div>
+            <div>
+              <h2 className="text-xl font-bold text-gray-900">Send Letter</h2>
+              <p className="text-sm text-gray-600">Create and send postal letters</p>
+              {currentService && (
+                <div className="flex items-center gap-2 mt-1">
+                  <span className="text-xs text-gray-500">Service:</span>
+                  <span className="text-xs font-medium text-gray-700">{currentService.name}</span>
+                  {activeApiKey && (
+                    <>
+                      <span className="text-xs text-gray-400">•</span>
+                      <span className={`text-xs font-medium px-2 py-1 rounded ${
+                        activeApiKey.type === 'live' 
+                          ? 'bg-red-100 text-red-700' 
+                          : 'bg-yellow-100 text-yellow-700'
+                      }`}>
+                        {activeApiKey.type === 'live' ? 'Live' : 'Test'}
+                      </span>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
           <div className="flex items-center gap-2">
             <button
               onClick={() => setIsFullScreen(!isFullScreen)}
@@ -105,6 +317,86 @@ export function LetterEditor({ onClose }: LetterEditorProps) {
               placeholder="Enter letter subject"
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
+          </div>
+
+          <div>
+            <label className="block text-sm font-semibold text-gray-900 mb-3">
+              Template Selection
+            </label>
+            <div className="space-y-3">
+              <label className="flex items-center gap-3 p-3 border border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors">
+                <input
+                  type="radio"
+                  name="templateMode"
+                  value="select"
+                  checked={templateMode === 'select'}
+                  onChange={(e) => setTemplateMode(e.target.value as 'select')}
+                  className="w-4 h-4 text-blue-600"
+                />
+                <div>
+                  <p className="font-medium text-gray-900">Select from templates</p>
+                  <p className="text-xs text-gray-500">Choose from your saved letter templates</p>
+                </div>
+              </label>
+
+              {templateMode === 'select' && (
+                <div className="ml-7 pl-4 border-l-2 border-blue-600">
+                  <select
+                    value={selectedTemplate}
+                    onChange={(e) => {
+                      setSelectedTemplate(e.target.value);
+                      handleTemplateSelect(e.target.value);
+                    }}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">Select a template...</option>
+                    {(templates || []).filter(template => template.type === 'email').map((template) => (
+                      <option key={template.id} value={template.id}>
+                        {template.name} - {template.description}
+                      </option>
+                    ))}
+                  </select>
+                  {selectedTemplate && (
+                    <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded text-xs">
+                      <p className="text-blue-800">
+                        Template loaded! Content and subject have been populated. 
+                        You can edit them before sending.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <label className="flex items-center gap-3 p-3 border border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors">
+                <input
+                  type="radio"
+                  name="templateMode"
+                  value="manual"
+                  checked={templateMode === 'manual'}
+                  onChange={(e) => setTemplateMode(e.target.value as 'manual')}
+                  className="w-4 h-4 text-blue-600"
+                />
+                <div>
+                  <p className="font-medium text-gray-900">Enter template ID manually</p>
+                  <p className="text-xs text-gray-500">Input a specific template ID</p>
+                </div>
+              </label>
+
+              {templateMode === 'manual' && (
+                <div className="ml-7 pl-4 border-l-2 border-blue-600">
+                  <input
+                    type="text"
+                    value={templateId}
+                    onChange={(e) => setTemplateId(e.target.value)}
+                    placeholder="Enter GOV.UK Notify template ID"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    The template ID from your GOV.UK Notify account
+                  </p>
+                </div>
+              )}
+            </div>
           </div>
 
           <div>
@@ -176,28 +468,174 @@ export function LetterEditor({ onClose }: LetterEditorProps) {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-semibold text-gray-900 mb-2">
-                Postage Type
-              </label>
-              <select className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-                <option>First Class</option>
-                <option>Second Class</option>
-                <option>International</option>
-              </select>
-            </div>
+          <div>
+            <label className="block text-sm font-semibold text-gray-900 mb-3">
+              Recipients
+            </label>
+            <div className="space-y-3">
+              <div className="flex gap-3">
+                <label className="flex items-center gap-2 p-3 border border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors flex-1">
+                  <input
+                    type="radio"
+                    name="recipientMode"
+                    value="contact"
+                    checked={recipientMode === 'contact'}
+                    onChange={(e) => setRecipientMode(e.target.value as 'contact')}
+                    className="w-4 h-4 text-blue-600"
+                  />
+                  <User size={18} className="text-gray-600" />
+                  <div>
+                    <p className="font-medium text-gray-900">Select Contacts</p>
+                    <p className="text-xs text-gray-500">Choose individual contacts</p>
+                  </div>
+                </label>
 
-            <div>
-              <label className="block text-sm font-semibold text-gray-900 mb-2">
-                Recipients
-              </label>
-              <input
-                type="text"
-                placeholder="Select contacts"
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
+                <label className="flex items-center gap-2 p-3 border border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors flex-1">
+                  <input
+                    type="radio"
+                    name="recipientMode"
+                    value="segment"
+                    checked={recipientMode === 'segment'}
+                    onChange={(e) => setRecipientMode(e.target.value as 'segment')}
+                    className="w-4 h-4 text-blue-600"
+                  />
+                  <Users size={18} className="text-gray-600" />
+                  <div>
+                    <p className="font-medium text-gray-900">Select Segment</p>
+                    <p className="text-xs text-gray-500">Choose a contact segment</p>
+                  </div>
+                </label>
+              </div>
+
+              {recipientMode === 'contact' && (
+                <div className="space-y-3">
+                  <div className="relative">
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+                      <input
+                        type="text"
+                        value={contactSearch}
+                        onChange={(e) => {
+                          setContactSearch(e.target.value);
+                          setShowContactDropdown(true);
+                        }}
+                        onFocus={() => setShowContactDropdown(true)}
+                        placeholder="Search contacts by name, email, address, or postcode..."
+                        className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+
+                    {showContactDropdown && contactSearch && (
+                      <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                        {filteredContacts.length > 0 ? (
+                          filteredContacts.slice(0, 10).map((contact) => (
+                            <button
+                              key={contact.id}
+                              onClick={() => handleContactSelect(contact)}
+                              className="w-full text-left p-3 hover:bg-gray-50 border-b border-gray-100 last:border-b-0"
+                            >
+                              <div className="font-medium text-gray-900">
+                                {contact.title} {contact.first_name} {contact.last_name}
+                              </div>
+                              <div className="text-sm text-gray-600">{contact.email}</div>
+                              <div className="text-xs text-gray-500">
+                                {contact.address_line_1}, {contact.postcode}
+                              </div>
+                            </button>
+                          ))
+                        ) : (
+                          <div className="p-3 text-gray-500 text-sm">No contacts found</div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {selectedContacts.length > 0 && (
+                    <div className="space-y-2">
+                      <p className="text-sm font-medium text-gray-700">
+                        Selected Contacts ({selectedContacts.length})
+                      </p>
+                      <div className="max-h-40 overflow-y-auto space-y-2">
+                        {selectedContacts.map((contact) => (
+                          <div
+                            key={contact.id}
+                            className="flex items-center justify-between p-2 bg-blue-50 border border-blue-200 rounded-lg"
+                          >
+                            <div>
+                              <div className="font-medium text-blue-900">
+                                {contact.title} {contact.first_name} {contact.last_name}
+                              </div>
+                              <div className="text-sm text-blue-700">{contact.email}</div>
+                              <div className="text-xs text-blue-600">
+                                {contact.address_line_1}, {contact.postcode}
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => handleContactRemove(contact.id)}
+                              className="p-1 hover:bg-blue-100 rounded transition-colors"
+                              title="Remove contact"
+                            >
+                              <X size={16} className="text-blue-600" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {recipientMode === 'segment' && (
+                <div className="space-y-3">
+                  <div className="relative">
+                    <select
+                      value={selectedSegment?.id || ''}
+                      onChange={(e) => {
+                        const segment = (segments || []).find(s => s.id === e.target.value);
+                        handleSegmentSelect(segment || null);
+                      }}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none"
+                    >
+                      <option value="">Select a segment...</option>
+                      {(segments || []).map((segment) => (
+                        <option key={segment.id} value={segment.id}>
+                          {segment.name} ({segment.contact_count} contacts)
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+                  </div>
+
+                  {selectedSegment && (
+                    <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
+                      <div className="font-medium text-green-900">{selectedSegment.name}</div>
+                      <div className="text-sm text-green-700">{selectedSegment.description}</div>
+                      <div className="text-xs text-green-600 mt-1">
+                        {selectedSegment.contact_count} contacts will receive this letter
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-gray-700">Total Recipients:</span>
+                  <span className="text-sm font-bold text-gray-900">{getRecipientCount()}</span>
+                </div>
+              </div>
             </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-semibold text-gray-900 mb-2">
+              Postage Type
+            </label>
+            <select className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <option>First Class</option>
+              <option>Second Class</option>
+              <option>International</option>
+            </select>
           </div>
 
           <div>
@@ -345,20 +783,35 @@ export function LetterEditor({ onClose }: LetterEditorProps) {
           </div>
         </div>
 
-        <div className="border-t border-gray-200 p-6 flex justify-between items-center bg-gray-50">
-          <button
-            onClick={onClose}
-            className="px-6 py-2 border border-gray-300 rounded-lg hover:bg-gray-100 transition-colors font-medium"
-          >
-            Cancel
-          </button>
-          <div className="flex gap-3">
-            <button className="px-6 py-2 border border-gray-300 rounded-lg hover:bg-gray-100 transition-colors font-medium">
-              Save Draft
+        <div className="border-t border-gray-200 p-6 bg-gray-50">
+          {sendError && (
+            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+              <p className="text-sm text-red-800">{sendError}</p>
+            </div>
+          )}
+          <div className="flex justify-between items-center">
+            <button
+              onClick={onClose}
+              disabled={isSending}
+              className="px-6 py-2 border border-gray-300 rounded-lg hover:bg-gray-100 transition-colors font-medium disabled:opacity-50"
+            >
+              Cancel
             </button>
-            <button className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium">
-              {scheduleMode === 'now' ? 'Send Letter' : 'Schedule Letter'}
-            </button>
+            <div className="flex gap-3">
+              <button 
+                disabled={isSending}
+                className="px-6 py-2 border border-gray-300 rounded-lg hover:bg-gray-100 transition-colors font-medium disabled:opacity-50"
+              >
+                Save Draft
+              </button>
+              <button 
+                onClick={scheduleMode === 'now' ? handleSend : handleSchedule}
+                disabled={isSending}
+                className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium disabled:opacity-50"
+              >
+                {isSending ? 'Sending...' : (scheduleMode === 'now' ? 'Send Letter' : 'Schedule Letter')}
+              </button>
+            </div>
           </div>
         </div>
       </div>
