@@ -52,10 +52,10 @@ export function LoginForm() {
         {/* Header */}
         <div className="text-center">
           <div className="flex justify-center mb-6">
-            <div className="bg-black text-white px-4 py-2 font-bold text-lg">GOV.UK</div>
+            <div className="bg-black text-white px-4 py-2 font-bold text-lg">SoloSend</div>
           </div>
           <h2 className="text-3xl font-bold text-gray-900">
-            Sign in to GOV.UK Notify
+            Sign in to SoloSend
           </h2>
           <p className="mt-2 text-gray-600">
             {step === 'email' 
@@ -72,7 +72,7 @@ export function LoginForm() {
             <div>
               <h3 className="font-semibold text-blue-900 text-sm">Secure Authentication</h3>
               <p className="text-blue-800 text-sm mt-1">
-                We use one-time passwords (OTP) sent to your email for secure, passwordless authentication.
+                We use one-time passwords (OTP) & magic links sent to your email for secure, passwordless authentication.
               </p>
             </div>
           </div>

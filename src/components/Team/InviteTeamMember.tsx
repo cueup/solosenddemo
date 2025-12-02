@@ -1,17 +1,22 @@
 import { useState } from 'react'
-import { X, Mail, Shield, UserPlus, AlertCircle } from 'lucide-react'
+import { X, Mail, Shield, UserPlus, AlertCircle, CheckCircle } from 'lucide-react'
+import { inviteService, InviteMemberData } from '../../services/inviteService'
 
 interface InviteTeamMemberProps {
   onClose: () => void
-  onInvite: (memberData: { email: string; role: 'admin' | 'editor' | 'viewer'; full_name: string }) => void
+  onInvite?: (memberData: InviteMemberData) => void
+  serviceId?: string
+  type?: 'team' | 'service'
 }
 
-export function InviteTeamMember({ onClose, onInvite }: InviteTeamMemberProps) {
+export function InviteTeamMember({ onClose, onInvite, serviceId, type = 'team' }: InviteTeamMemberProps) {
   const [email, setEmail] = useState('')
   const [fullName, setFullName] = useState('')
   const [role, setRole] = useState<'admin' | 'editor' | 'viewer'>('editor')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [success, setSuccess] = useState(false)
+  const [invitedEmail, setInvitedEmail] = useState('')
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -19,21 +24,51 @@ export function InviteTeamMember({ onClose, onInvite }: InviteTeamMemberProps) {
     setError('')
 
     try {
-      // Validate email domain (government emails only)
-      if (!email.includes('.gov.uk') && !email.includes('.gov.')) {
-        throw new Error('Please use a government email address')
-      }
-
-      await onInvite({
+      const memberData: InviteMemberData = {
         email: email.toLowerCase().trim(),
         full_name: fullName.trim(),
         role
-      })
+      }
+
+      if (type === 'service' && serviceId) {
+        await inviteService.inviteServiceMember(memberData, serviceId)
+      } else {
+        await inviteService.inviteTeamMember(memberData)
+      }
+
+      // Call the optional callback
+      if (onInvite) {
+        await onInvite(memberData)
+      }
+
+      setInvitedEmail(email)
+      setSuccess(true)
+      
+      // Reset form
+      setEmail('')
+      setFullName('')
+      setRole('editor')
     } catch (err: any) {
       setError(err.message || 'Failed to send invitation')
     } finally {
       setLoading(false)
     }
+  }
+
+  const handleClose = () => {
+    if (success) {
+      // If successful, close immediately
+      onClose()
+    } else {
+      // If not successful, just close
+      onClose()
+    }
+  }
+
+  const handleSendAnother = () => {
+    setSuccess(false)
+    setInvitedEmail('')
+    setError('')
   }
 
   const roleDescriptions = {
@@ -51,19 +86,54 @@ export function InviteTeamMember({ onClose, onInvite }: InviteTeamMemberProps) {
               <UserPlus size={24} className="text-blue-600" />
             </div>
             <div>
-              <h2 className="text-xl font-bold text-gray-900">Invite Team Member</h2>
-              <p className="text-sm text-gray-600">Send an invitation to join your team</p>
+              <h2 className="text-xl font-bold text-gray-900">
+                {type === 'service' ? 'Invite Service Member' : 'Invite Team Member'}
+              </h2>
+              <p className="text-sm text-gray-600">
+                {type === 'service' 
+                  ? 'Send an invitation to join this service' 
+                  : 'Send an invitation to join your team'
+                }
+              </p>
             </div>
           </div>
           <button
-            onClick={onClose}
+            onClick={handleClose}
             className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
           >
             <X size={20} />
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-6">
+        {success ? (
+          <div className="p-6 text-center">
+            <div className="flex justify-center mb-4">
+              <div className="p-3 bg-green-100 rounded-full">
+                <CheckCircle size={32} className="text-green-600" />
+              </div>
+            </div>
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">Invitation Sent!</h3>
+            <p className="text-gray-600 mb-6">
+              An invitation has been sent to <strong>{invitedEmail}</strong>. 
+              They will receive an email with instructions to join your {type === 'service' ? 'service' : 'team'}.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={handleSendAnother}
+                className="flex-1 px-6 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors font-medium"
+              >
+                Send Another
+              </button>
+              <button
+                onClick={handleClose}
+                className="flex-1 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        ) : (
+          <form onSubmit={handleSubmit} className="p-6 space-y-6">
           <div>
             <label className="block text-sm font-semibold text-gray-900 mb-2">
               Full Name *
@@ -94,7 +164,7 @@ export function InviteTeamMember({ onClose, onInvite }: InviteTeamMemberProps) {
               />
             </div>
             <p className="text-xs text-gray-500 mt-1">
-              Must be a government email address (.gov.uk)
+              Enter a valid email address for the team member
             </p>
           </div>
 
@@ -156,30 +226,31 @@ export function InviteTeamMember({ onClose, onInvite }: InviteTeamMemberProps) {
             </div>
           </div>
 
-          <div className="flex gap-3 pt-4">
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex-1 px-6 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors font-medium"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={loading || !email || !fullName}
-              className="flex-1 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-            >
-              {loading ? (
-                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
-              ) : (
-                <>
-                  <UserPlus size={18} />
-                  Send Invitation
-                </>
-              )}
-            </button>
-          </div>
-        </form>
+            <div className="flex gap-3 pt-4">
+              <button
+                type="button"
+                onClick={handleClose}
+                className="flex-1 px-6 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors font-medium"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={loading || !email || !fullName}
+                className="flex-1 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {loading ? (
+                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+                ) : (
+                  <>
+                    <UserPlus size={18} />
+                    Send Invitation
+                  </>
+                )}
+              </button>
+            </div>
+          </form>
+        )}
       </div>
     </div>
   )
