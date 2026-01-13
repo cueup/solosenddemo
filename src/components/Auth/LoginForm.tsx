@@ -8,7 +8,7 @@ export function LoginForm() {
   const [step, setStep] = useState<'email' | 'otp'>('email')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const { signIn, verifyOTP } = useAuth()
+  const { signIn, verifyOTP, signInWithAzure } = useAuth()
 
   const handleSendOTP = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -16,13 +16,13 @@ export function LoginForm() {
     setError('')
 
     const { error } = await signIn(email)
-    
+
     if (error) {
       setError(error.message)
     } else {
       setStep('otp')
     }
-    
+
     setLoading(false)
   }
 
@@ -32,12 +32,22 @@ export function LoginForm() {
     setError('')
 
     const { error } = await verifyOTP(email, otp)
-    
+
     if (error) {
       setError(error.message)
     }
-    
+
     setLoading(false)
+  }
+
+  const handleAzureSignIn = async () => {
+    setLoading(true)
+    setError('')
+    const { error } = await signInWithAzure()
+    if (error) {
+      setError(error.message)
+      setLoading(false)
+    }
   }
 
   const handleBackToEmail = () => {
@@ -58,7 +68,7 @@ export function LoginForm() {
             Sign in to SoloSend
           </h2>
           <p className="mt-2 text-gray-600">
-            {step === 'email' 
+            {step === 'email'
               ? 'Enter your email address to receive a secure sign-in code'
               : 'Enter the 6-digit code sent to your email'
             }
@@ -122,6 +132,30 @@ export function LoginForm() {
                     <ArrowRight size={18} />
                   </>
                 )}
+              </button>
+
+              <div className="relative my-6">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-gray-300"></div>
+                </div>
+                <div className="relative flex justify-center text-sm">
+                  <span className="px-2 bg-white text-gray-500">Or continue with</span>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleAzureSignIn}
+                disabled={loading}
+                className="w-full bg-[#2F2F2F] text-white py-3 px-4 rounded-lg hover:bg-[#1a1a1a] transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-semibold flex items-center justify-center gap-2"
+              >
+                <svg className="w-5 h-5" viewBox="0 0 21 21" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M10.5 0L0 0V10.5H10.5V0Z" fill="#F25022" />
+                  <path d="M21 0L10.5 0V10.5H21V0Z" fill="#7FBA00" />
+                  <path d="M10.5 10.5L0 10.5V21H10.5V10.5Z" fill="#00A4EF" />
+                  <path d="M21 10.5L10.5 10.5V21H21V10.5Z" fill="#FFB900" />
+                </svg>
+                Sign in with Microsoft
               </button>
             </form>
           ) : (

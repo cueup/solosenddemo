@@ -9,6 +9,7 @@ interface AuthContextType {
   signIn: (email: string) => Promise<{ error: any }>
   signOut: () => Promise<void>
   verifyOTP: (email: string, token: string) => Promise<{ error: any }>
+  signInWithAzure: () => Promise<{ error: any }>
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -57,6 +58,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { error }
   }
 
+  const signInWithAzure = async () => {
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'azure',
+      options: {
+        scopes: 'email',
+        redirectTo: window.location.origin,
+      },
+    })
+    return { error }
+  }
+
   const signOut = async () => {
     await supabase.auth.signOut()
   }
@@ -68,6 +80,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     signIn,
     signOut,
     verifyOTP,
+    signInWithAzure,
   }
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
