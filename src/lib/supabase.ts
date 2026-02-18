@@ -18,13 +18,13 @@ export type User = {
   }
 }
 
-export type TeamMember = {
+export type Profile = {
   id: string
   email: string
   full_name: string
   role: 'admin' | 'editor' | 'viewer'
   status: 'active' | 'pending' | 'inactive'
-  invited_by: string
-  invited_at: string
+  invited_by?: string
+  invited_at?: string
   last_sign_in?: string
 }

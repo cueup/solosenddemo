@@ -2,26 +2,28 @@ import { X, Mail, MessageSquare, FileText, CheckCircle2, Clock, AlertCircle, Use
 
 interface MessageDetailsModalProps {
   message: {
-    type: string;
+    message_type: string;
     subject: string;
     recipients: string;
     sent: string;
     delivered?: string;
-    status: 'draft' | 'sent' | 'delivered' | 'failed' | 'processing';
-    content: string;
+    status: 'draft' | 'sent' | 'delivered' | 'failed' | 'processing' | 'pending' | 'cancelled';
+    content_preview: string;
     templateUsed?: string;
     scheduledFor?: string;
   };
   onClose: () => void;
+  onEdit?: () => void;
+  onSendSimilar?: () => void;
 }
 
-export function MessageDetailsModal({ message, onClose }: MessageDetailsModalProps) {
+export function MessageDetailsModal({ message, onClose, onEdit, onSendSimilar }: MessageDetailsModalProps) {
   const icons = {
     email: Mail,
     sms: MessageSquare,
     letter: FileText
   };
-  const Icon = icons[message.type as keyof typeof icons];
+  const Icon = icons[message.message_type as keyof typeof icons];
 
   const getStatusDisplay = () => {
     switch (message.status) {
@@ -65,7 +67,8 @@ export function MessageDetailsModal({ message, onClose }: MessageDetailsModalPro
     }
   };
 
-  const formatContent = (content: string) => {
+  const formatContent = (content?: string) => {
+    if (!content) return null;
     return content.split('\n').map((line, index) => (
       <p key={index} className="mb-2 last:mb-0">
         {line || '\u00A0'}
@@ -84,7 +87,7 @@ export function MessageDetailsModal({ message, onClose }: MessageDetailsModalPro
             <div>
               <h2 className="text-xl font-bold text-gray-900">{message.subject}</h2>
               <div className="flex items-center gap-4 mt-1">
-                <span className="text-sm text-gray-600 capitalize">{message.type} message</span>
+                <span className="text-sm text-gray-600 capitalize">{message.message_type} message</span>
                 {getStatusDisplay()}
               </div>
             </div>
@@ -111,7 +114,7 @@ export function MessageDetailsModal({ message, onClose }: MessageDetailsModalPro
                       <span className="text-sm text-gray-900">{message.recipients} recipients</span>
                     </div>
                   </div>
-                  
+
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Sent</label>
                     <p className="text-sm text-gray-900">{message.sent}</p>
@@ -170,7 +173,7 @@ export function MessageDetailsModal({ message, onClose }: MessageDetailsModalPro
             <div className="lg:col-span-2">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Message Content</h3>
               <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-                {message.type === 'email' && (
+                {message.message_type === 'email' && (
                   <div className="mb-4 pb-4 border-b border-gray-300">
                     <label className="block text-sm font-medium text-gray-700 mb-2">Subject</label>
                     <p className="text-sm text-gray-900 font-medium">{message.subject}</p>
@@ -178,11 +181,11 @@ export function MessageDetailsModal({ message, onClose }: MessageDetailsModalPro
                 )}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    {message.type === 'email' ? 'Email Body' : 
-                     message.type === 'sms' ? 'SMS Content' : 'Letter Content'}
+                    {message.message_type === 'email' ? 'Email Body' :
+                      message.message_type === 'sms' ? 'SMS Content' : 'Letter Content'}
                   </label>
                   <div className="text-sm text-gray-900 whitespace-pre-wrap">
-                    {formatContent(message.content)}
+                    {formatContent(message.content_preview)}
                   </div>
                 </div>
               </div>
@@ -193,7 +196,11 @@ export function MessageDetailsModal({ message, onClose }: MessageDetailsModalPro
         <div className="flex justify-end gap-3 p-6 border-t border-gray-200 bg-gray-50">
           {message.status === 'draft' && (
             <>
-              <button className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
+              <button
+                onClick={onEdit}
+                className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                disabled={!onEdit}
+              >
                 Edit Draft
               </button>
               <button className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
@@ -202,7 +209,11 @@ export function MessageDetailsModal({ message, onClose }: MessageDetailsModalPro
             </>
           )}
           {message.status === 'delivered' && (
-            <button className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
+            <button
+              onClick={onSendSimilar}
+              className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+              disabled={!onSendSimilar}
+            >
               Send Similar
             </button>
           )}

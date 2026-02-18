@@ -44,17 +44,16 @@ export function TemplateEditor({ template, onClose, onSave }: TemplateEditorProp
 
   // Common variables that users might want to use
   const commonVariables = [
-    'firstName', 'lastName', 'title', 'email', 'phone',
-    'address1', 'address2', 'city', 'postcode',
-    'appointmentDate', 'appointmentTime', 'serviceName',
-    'accountNumber', 'amount', 'dueDate', 'referenceNumber'
+    'title', 'first_name', 'last_name', 'email', 'phone',
+    'address_line_1', 'address_line_2', 'address_line_3',
+    'postcode', 'metadata.serviceType', 'metadata.accountNumber'
   ];
 
   useEffect(() => {
     // Extract variables from content and subject
-    const variableRegex = /\{\{\s*(\w+)\s*\}\}/g;
+    const variableRegex = /\{\{\s*([\w.]+)\s*\}\}/g;
     const foundVariables = new Set<string>();
-    
+
     const extractVariables = (text: string) => {
       let match;
       while ((match = variableRegex.exec(text)) !== null) {
@@ -71,10 +70,10 @@ export function TemplateEditor({ template, onClose, onSave }: TemplateEditorProp
     const sampleData: Record<string, string> = {};
     foundVariables.forEach(variable => {
       switch (variable) {
-        case 'firstName':
+        case 'first_name':
           sampleData[variable] = 'John';
           break;
-        case 'lastName':
+        case 'last_name':
           sampleData[variable] = 'Smith';
           break;
         case 'title':
@@ -86,14 +85,17 @@ export function TemplateEditor({ template, onClose, onSave }: TemplateEditorProp
         case 'phone':
           sampleData[variable] = '+44 20 7123 4567';
           break;
-        case 'appointmentDate':
-          sampleData[variable] = '15th November 2024';
+        case 'address_line_1':
+          sampleData[variable] = '123 High Street';
           break;
-        case 'appointmentTime':
-          sampleData[variable] = '2:30 PM';
+        case 'postcode':
+          sampleData[variable] = 'SW1A 1AA';
           break;
-        case 'serviceName':
-          sampleData[variable] = 'Government Service Portal';
+        case 'metadata.serviceType':
+          sampleData[variable] = 'Housing Benefit';
+          break;
+        case 'metadata.accountNumber':
+          sampleData[variable] = 'HB-12345678';
           break;
         default:
           sampleData[variable] = `[${variable}]`;
@@ -109,7 +111,7 @@ export function TemplateEditor({ template, onClose, onSave }: TemplateEditorProp
       const end = textarea.selectionEnd;
       const newContent = content.substring(0, start) + `{{${variable}}}` + content.substring(end);
       setContent(newContent);
-      
+
       setTimeout(() => {
         textarea.focus();
         textarea.setSelectionRange(start + variable.length + 4, start + variable.length + 4);
@@ -240,7 +242,7 @@ export function TemplateEditor({ template, onClose, onSave }: TemplateEditorProp
                     type="text"
                     value={subject}
                     onChange={(e) => setSubject(e.target.value)}
-                    placeholder="Enter subject line (you can use variables like {{firstName}})"
+                    placeholder="Enter subject line (you can use variables like {{first_name}})"
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
@@ -254,22 +256,20 @@ export function TemplateEditor({ template, onClose, onSave }: TemplateEditorProp
                   <div className="flex gap-2">
                     <button
                       onClick={() => setPreviewMode(!previewMode)}
-                      className={`px-3 py-1 text-sm rounded-lg transition-colors ${
-                        previewMode 
-                          ? 'bg-blue-600 text-white' 
-                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                      }`}
+                      className={`px-3 py-1 text-sm rounded-lg transition-colors ${previewMode
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                        }`}
                     >
                       <Eye size={16} className="inline mr-1" />
                       Preview
                     </button>
                     <button
                       onClick={() => setPreviewMode(false)}
-                      className={`px-3 py-1 text-sm rounded-lg transition-colors ${
-                        !previewMode 
-                          ? 'bg-blue-600 text-white' 
-                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                      }`}
+                      className={`px-3 py-1 text-sm rounded-lg transition-colors ${!previewMode
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                        }`}
                     >
                       <Code size={16} className="inline mr-1" />
                       Edit
@@ -299,7 +299,7 @@ export function TemplateEditor({ template, onClose, onSave }: TemplateEditorProp
                 )}
 
                 <div className="mt-2 text-sm text-gray-600">
-                  <p>Use double curly braces for variables: <code className="bg-gray-100 px-1 rounded">{'{{firstName}}'}</code></p>
+                  <p>Use double curly braces for variables: <code className="bg-gray-100 px-1 rounded">{'{{first_name}}'}</code></p>
                   {type === 'sms' && (
                     <p className="text-orange-600 mt-1">
                       <AlertCircle size={14} className="inline mr-1" />
@@ -330,7 +330,7 @@ export function TemplateEditor({ template, onClose, onSave }: TemplateEditorProp
             <div className="space-y-6">
               <div>
                 <h3 className="text-lg font-semibold text-gray-900 mb-3">Variables</h3>
-                
+
                 {detectedVariables.length > 0 && (
                   <div className="mb-4">
                     <h4 className="text-sm font-medium text-gray-700 mb-2">Detected Variables</h4>
@@ -352,11 +352,10 @@ export function TemplateEditor({ template, onClose, onSave }: TemplateEditorProp
                       <button
                         key={variable}
                         onClick={() => insertVariable(variable)}
-                        className={`w-full text-left px-3 py-2 text-sm rounded transition-colors ${
-                          detectedVariables.includes(variable)
-                            ? 'bg-green-50 text-green-700 border border-green-200'
-                            : 'bg-gray-50 text-gray-700 hover:bg-gray-100 border border-gray-200'
-                        }`}
+                        className={`w-full text-left px-3 py-2 text-sm rounded transition-colors ${detectedVariables.includes(variable)
+                          ? 'bg-green-50 text-green-700 border border-green-200'
+                          : 'bg-gray-50 text-gray-700 hover:bg-gray-100 border border-gray-200'
+                          }`}
                       >
                         <Plus size={14} className="inline mr-2" />
                         {variable}

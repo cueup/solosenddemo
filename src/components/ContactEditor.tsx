@@ -1,34 +1,53 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { X, Save, Mail, Phone, MapPin, Tag, User, Edit3 } from 'lucide-react';
-
-interface Contact {
-  title: string;
-  name: string;
-  email: string;
-  phone: string;
-  address: string;
-  tags: string[];
-}
+import { Contact } from '../services/contactService';
+import { contactPreferenceService, ContactPreferences } from '../services/contactPreferenceService';
 
 interface ContactEditorProps {
   contact: Contact;
   onClose: () => void;
-  onSave: (contact: Contact) => void;
+  onSave: (contact: Contact, preferences: ContactPreferences) => void;
 }
 
 export function ContactEditor({ contact, onClose, onSave }: ContactEditorProps) {
   const [isEditing, setIsEditing] = useState(false);
-  const [editedContact, setEditedContact] = useState(contact);
+  const [editedContact, setEditedContact] = useState<Contact>(contact);
   const [newTag, setNewTag] = useState('');
+  const [preferences, setPreferences] = useState<ContactPreferences>({
+    email: true,
+    sms: true,
+    letter: true
+  });
+
+  useEffect(() => {
+    if (contact.id) {
+      contactPreferenceService.getPreferences(contact.id).then(prefs => {
+        if (prefs) {
+          setPreferences(prefs);
+        }
+      });
+    }
+  }, [contact.id]);
+
+  // If the contact has no ID (new contact), start in editing mode
+  useState(() => {
+    if (!contact.id) {
+      setIsEditing(true);
+    }
+  });
 
   const handleSave = () => {
-    onSave(editedContact);
+    onSave(editedContact, preferences);
     setIsEditing(false);
   };
 
   const handleCancel = () => {
-    setEditedContact(contact);
-    setIsEditing(false);
+    if (!contact.id) {
+      onClose();
+    } else {
+      setEditedContact(contact);
+      setIsEditing(false);
+    }
   };
 
   const addTag = () => {
@@ -60,12 +79,16 @@ export function ContactEditor({ contact, onClose, onSave }: ContactEditorProps) 
         <div className="flex items-center gap-3">
           <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
             <span className="text-blue-600 font-semibold text-lg">
-              {contact.name.split(' ').map(n => n[0]).join('')}
+              {editedContact.first_name?.[0]}{editedContact.last_name?.[0]}
             </span>
           </div>
           <div>
-            <h2 className="text-xl font-bold text-gray-900">Contact Details</h2>
-            <p className="text-gray-600">{contact.name}</p>
+            <h2 className="text-xl font-bold text-gray-900">
+              {contact.id ? 'Contact Details' : 'New Contact'}
+            </h2>
+            <p className="text-gray-600">
+              {editedContact.first_name} {editedContact.last_name}
+            </p>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -111,7 +134,7 @@ export function ContactEditor({ contact, onClose, onSave }: ContactEditorProps) 
             <User size={20} className="text-blue-600" />
             Personal Information
           </h3>
-          
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Title</label>
@@ -119,8 +142,9 @@ export function ContactEditor({ contact, onClose, onSave }: ContactEditorProps) 
                 <select
                   value={editedContact.title}
                   onChange={(e) => setEditedContact({ ...editedContact, title: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-1/3 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
+                  <option value="">Select...</option>
                   <option value="Mr">Mr</option>
                   <option value="Mrs">Mrs</option>
                   <option value="Miss">Miss</option>
@@ -132,19 +156,36 @@ export function ContactEditor({ contact, onClose, onSave }: ContactEditorProps) 
                 <p className="px-3 py-2 bg-gray-50 rounded-lg text-gray-900">{contact.title}</p>
               )}
             </div>
-            
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Full Name</label>
-              {isEditing ? (
-                <input
-                  type="text"
-                  value={editedContact.name}
-                  onChange={(e) => setEditedContact({ ...editedContact, name: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              ) : (
-                <p className="px-3 py-2 bg-gray-50 rounded-lg text-gray-900">{contact.name}</p>
-              )}
+
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">First Name</label>
+                {isEditing ? (
+                  <input
+                    placeholder="First Name"
+                    type="text"
+                    value={editedContact.first_name}
+                    onChange={(e) => setEditedContact({ ...editedContact, first_name: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                ) : (
+                  <p className="px-3 py-2 bg-gray-50 rounded-lg text-gray-900">{contact.first_name}</p>
+                )}
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Last Name</label>
+                {isEditing ? (
+                  <input
+                    placeholder="Last Name"
+                    type="text"
+                    value={editedContact.last_name}
+                    onChange={(e) => setEditedContact({ ...editedContact, last_name: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                ) : (
+                  <p className="px-3 py-2 bg-gray-50 rounded-lg text-gray-900">{contact.last_name}</p>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -152,7 +193,7 @@ export function ContactEditor({ contact, onClose, onSave }: ContactEditorProps) 
         {/* Contact Information */}
         <div className="space-y-4">
           <h3 className="text-lg font-semibold text-gray-900">Contact Information</h3>
-          
+
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
@@ -161,6 +202,7 @@ export function ContactEditor({ contact, onClose, onSave }: ContactEditorProps) 
               </label>
               {isEditing ? (
                 <input
+                  placeholder="Email Address"
                   type="email"
                   value={editedContact.email}
                   onChange={(e) => setEditedContact({ ...editedContact, email: e.target.value })}
@@ -170,7 +212,7 @@ export function ContactEditor({ contact, onClose, onSave }: ContactEditorProps) 
                 <p className="px-3 py-2 bg-gray-50 rounded-lg text-gray-900">{contact.email}</p>
               )}
             </div>
-            
+
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
                 <Phone size={16} className="text-blue-600" />
@@ -178,6 +220,7 @@ export function ContactEditor({ contact, onClose, onSave }: ContactEditorProps) 
               </label>
               {isEditing ? (
                 <input
+                  placeholder="Phone Number"
                   type="tel"
                   value={editedContact.phone}
                   onChange={(e) => setEditedContact({ ...editedContact, phone: e.target.value })}
@@ -187,21 +230,59 @@ export function ContactEditor({ contact, onClose, onSave }: ContactEditorProps) 
                 <p className="px-3 py-2 bg-gray-50 rounded-lg text-gray-900">{contact.phone}</p>
               )}
             </div>
-            
+
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
                 <MapPin size={16} className="text-blue-600" />
                 Address
               </label>
               {isEditing ? (
-                <textarea
-                  value={editedContact.address}
-                  onChange={(e) => setEditedContact({ ...editedContact, address: e.target.value })}
-                  rows={3}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-                />
+                <div className="space-y-2">
+                  {[1, 2, 3, 4, 5, 6, 7].map((num) => {
+                    const fieldName = `address_line_${num}` as keyof Contact;
+                    const value = editedContact[fieldName] as string || '';
+                    const isVisible = num === 1 || !!editedContact[`address_line_${num}` as keyof Contact] || !!editedContact[`address_line_${num - 1}` as keyof Contact];
+
+                    if (!isVisible && num > 1) return null;
+
+                    return (
+                      <div key={num} className="flex gap-2">
+                        <input
+                          placeholder={`Address Line ${num}${num > 1 ? ' (Optional)' : ''}`}
+                          value={value}
+                          onChange={(e) => setEditedContact({ ...editedContact, [fieldName]: e.target.value })}
+                          className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                        {num > 1 && value && (
+                          <button
+                            onClick={() => setEditedContact({ ...editedContact, [fieldName]: '' })}
+                            className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                            title="Clear line"
+                          >
+                            <X size={18} />
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <input
+                      placeholder="Postcode"
+                      value={editedContact.postcode}
+                      onChange={(e) => setEditedContact({ ...editedContact, postcode: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                </div>
               ) : (
-                <p className="px-3 py-2 bg-gray-50 rounded-lg text-gray-900 whitespace-pre-wrap">{contact.address}</p>
+                <div className="px-3 py-2 bg-gray-50 rounded-lg text-gray-900">
+                  {[1, 2, 3, 4, 5, 6, 7].map((num) => {
+                    const value = contact[`address_line_${num}` as keyof Contact];
+                    return value ? <p key={num}>{value as string}</p> : null;
+                  })}
+                  <p>{contact.postcode}</p>
+                </div>
               )}
             </div>
           </div>
@@ -213,7 +294,7 @@ export function ContactEditor({ contact, onClose, onSave }: ContactEditorProps) 
             <Tag size={20} className="text-blue-600" />
             Tags
           </h3>
-          
+
           <div className="space-y-3">
             <div className="flex flex-wrap gap-2">
               {editedContact.tags.map((tag, index) => (
@@ -237,7 +318,7 @@ export function ContactEditor({ contact, onClose, onSave }: ContactEditorProps) 
                 <span className="text-sm text-gray-500 italic">No tags assigned</span>
               )}
             </div>
-            
+
             {isEditing && (
               <div className="flex gap-2">
                 <input
@@ -263,7 +344,7 @@ export function ContactEditor({ contact, onClose, onSave }: ContactEditorProps) 
         {/* Communication Preferences */}
         <div className="space-y-4">
           <h3 className="text-lg font-semibold text-gray-900">Communication Preferences</h3>
-          
+
           <div className="bg-gray-50 rounded-lg p-4">
             <div className="space-y-3">
               <div className="flex items-center justify-between">
@@ -274,12 +355,13 @@ export function ContactEditor({ contact, onClose, onSave }: ContactEditorProps) 
                 <div className="flex items-center">
                   <input
                     type="checkbox"
-                    defaultChecked
+                    checked={preferences.email}
+                    onChange={(e) => setPreferences({ ...preferences, email: e.target.checked })}
                     className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
                   />
                 </div>
               </div>
-              
+
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <Phone size={18} className="text-green-600" />
@@ -288,12 +370,13 @@ export function ContactEditor({ contact, onClose, onSave }: ContactEditorProps) 
                 <div className="flex items-center">
                   <input
                     type="checkbox"
-                    defaultChecked
+                    checked={preferences.sms}
+                    onChange={(e) => setPreferences({ ...preferences, sms: e.target.checked })}
                     className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
                   />
                 </div>
               </div>
-              
+
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <MapPin size={18} className="text-orange-600" />
@@ -302,7 +385,8 @@ export function ContactEditor({ contact, onClose, onSave }: ContactEditorProps) 
                 <div className="flex items-center">
                   <input
                     type="checkbox"
-                    defaultChecked
+                    checked={preferences.letter}
+                    onChange={(e) => setPreferences({ ...preferences, letter: e.target.checked })}
                     className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
                   />
                 </div>
@@ -312,26 +396,27 @@ export function ContactEditor({ contact, onClose, onSave }: ContactEditorProps) 
         </div>
 
         {/* Contact Statistics */}
-        <div className="space-y-4">
-          <h3 className="text-lg font-semibold text-gray-900">Contact Statistics</h3>
-          
-          <div className="grid grid-cols-2 gap-4">
-            <div className="bg-blue-50 rounded-lg p-4 text-center">
-              <p className="text-2xl font-bold text-blue-600">12</p>
-              <p className="text-sm text-blue-800">Total Messages</p>
+        {contact.id && (
+          <div className="space-y-4">
+            <h3 className="text-lg font-semibold text-gray-900">Contact Statistics</h3>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="bg-blue-50 rounded-lg p-4 text-center">
+                <p className="text-2xl font-bold text-blue-600">0</p>
+                <p className="text-sm text-blue-800">Total Messages</p>
+              </div>
+              <div className="bg-green-50 rounded-lg p-4 text-center">
+                <p className="text-2xl font-bold text-green-600">0</p>
+                <p className="text-sm text-green-800">Delivered</p>
+              </div>
             </div>
-            <div className="bg-green-50 rounded-lg p-4 text-center">
-              <p className="text-2xl font-bold text-green-600">11</p>
-              <p className="text-sm text-green-800">Delivered</p>
+
+            <div className="text-xs text-gray-500 space-y-1">
+              <p>Contact added: {contact.created_at ? new Date(contact.created_at).toLocaleDateString() : 'N/A'}</p>
+              <p>Last updated: {isEditing ? 'Editing...' : (contact.updated_at ? new Date(contact.updated_at).toLocaleDateString() : 'N/A')}</p>
             </div>
           </div>
-          
-          <div className="text-xs text-gray-500 space-y-1">
-            <p>Last contacted: 2 days ago</p>
-            <p>Contact added: 15 Oct 2024</p>
-            <p>Last updated: {isEditing ? 'Editing...' : '20 Oct 2024'}</p>
-          </div>
-        </div>
+        )}
       </div>
     </div>
   );

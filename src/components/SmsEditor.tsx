@@ -1,7 +1,10 @@
 import { useState, useEffect } from 'react';
 import { X, AlertCircle, Calendar, Clock, Maximize2, Minimize2, Search, Users, User, ChevronDown, MessageSquare } from 'lucide-react';
-import { notifyService } from '../services/notifyService';
 import { useService } from '../contexts/ServiceContext';
+import { messageService } from '../services/messageService';
+import { Contact } from '../services/contactService';
+import { ContactPreferences } from '../services/contactPreferenceService';
+import { segmentService, Segment } from '../services/segmentService';
 
 interface Template {
   id: string;
@@ -16,68 +19,72 @@ interface Template {
   updated_at: string;
 }
 
-interface Contact {
-  id: string;
-  title: string;
-  first_name: string;
-  last_name: string;
-  email: string;
-  phone: string;
-  address_line_1: string;
-  address_line_2?: string;
-  address_line_3?: string;
-  address_line_4?: string;
-  address_line_5?: string;
-  address_line_6?: string;
-  postcode: string;
-  tags: string[];
-}
-
-interface Segment {
-  id: string;
-  name: string;
-  description: string;
-  contact_count: number;
-}
-
 interface SmsEditorProps {
   onClose: () => void;
   templates: Template[];
   contacts: Contact[];
   segments: Segment[];
+  contactPreferences?: Record<string, ContactPreferences>;
+  initialState?: {
+    id?: string;
+    content?: string;
+    scheduled_at?: string;
+    recipient_mode?: 'contact' | 'segment' | 'manual';
+    template_id?: string;
+    segment_id?: string;
+    metadata?: any;
+  };
 }
 
-export function SmsEditor({ onClose, templates, contacts, segments }: SmsEditorProps) {
+export function SmsEditor({ onClose, templates, contacts, segments, contactPreferences = {}, initialState }: SmsEditorProps) {
   const { currentService, activeApiKey } = useService();
-  const [content, setContent] = useState('');
+  const [content, setContent] = useState(initialState?.content || '');
   const [messageCount, setMessageCount] = useState(0);
   const [hasSpecialChars, setHasSpecialChars] = useState(false);
   const [charLimit, setCharLimit] = useState(160);
-  const [scheduleMode, setScheduleMode] = useState<'now' | 'scheduled'>('now');
-  const [scheduleDate, setScheduleDate] = useState('');
-  const [scheduleTime, setScheduleTime] = useState('');
+  const [scheduleMode, setScheduleMode] = useState<'now' | 'scheduled'>(initialState?.scheduled_at ? 'scheduled' : 'now');
+  const [scheduleDate, setScheduleDate] = useState(initialState?.scheduled_at ? new Date(initialState.scheduled_at).toISOString().split('T')[0] : '');
+  const [scheduleTime, setScheduleTime] = useState(initialState?.scheduled_at ? new Date(initialState.scheduled_at).toTimeString().slice(0, 5) : '');
   const [isFullScreen, setIsFullScreen] = useState(false);
-  const [recipientMode, setRecipientMode] = useState<'contact' | 'segment' | 'manual'>('contact');
-  const [selectedContacts, setSelectedContacts] = useState<Contact[]>([]);
-  const [selectedSegment, setSelectedSegment] = useState<Segment | null>(null);
+  const [recipientMode, setRecipientMode] = useState<'contact' | 'segment' | 'manual'>(initialState?.recipient_mode || 'contact');
+  const [selectedContacts, setSelectedContacts] = useState<Contact[]>(() => {
+    if (initialState?.metadata?.selected_contacts && contacts) {
+      return contacts.filter(c => initialState.metadata.selected_contacts.includes(c.id));
+    }
+    return [];
+  });
+  const [selectedSegment, setSelectedSegment] = useState<Segment | null>(() => {
+    if (initialState?.segment_id && segments) {
+      return segments.find(s => s.id === initialState.segment_id) || null;
+    }
+    return null;
+  });
   const [contactSearch, setContactSearch] = useState('');
   const [showContactDropdown, setShowContactDropdown] = useState(false);
-  const [manualRecipients, setManualRecipients] = useState('');
-  const [templateId, setTemplateId] = useState('');
-  const [templateMode, setTemplateMode] = useState<'select' | 'manual'>('select');
-  const [selectedTemplate, setSelectedTemplate] = useState('');
+  const [manualRecipients, setManualRecipients] = useState(initialState?.metadata?.manual_recipients || '');
+  const [templateId, setTemplateId] = useState(initialState?.metadata?.external_template_id || '');
+  const [templateMode, setTemplateMode] = useState<'select' | 'manual'>(initialState?.template_id ? 'select' : (initialState?.metadata?.external_template_id ? 'manual' : 'select'));
+  const [selectedTemplate, setSelectedTemplate] = useState(initialState?.template_id || '');
   const [isSending, setIsSending] = useState(false);
   const [sendError, setSendError] = useState('');
+  const [draftId, setDraftId] = useState<string | undefined>(initialState?.id);
 
   const filteredContacts = (contacts || []).filter(contact => {
     const searchTerm = contactSearch.toLowerCase();
+    const firstName = (contact.first_name || '').toLowerCase();
+    const lastName = (contact.last_name || '').toLowerCase();
+    const email = (contact.email || '').toLowerCase();
+    const phone = (contact.phone || '').toLowerCase();
+    const address = (contact.address_line_1 || '').toLowerCase();
+    const postcode = (contact.postcode || '').toLowerCase();
+
     return (
-      contact.first_name.toLowerCase().includes(searchTerm) ||
-      contact.last_name.toLowerCase().includes(searchTerm) ||
-      contact.email.toLowerCase().includes(searchTerm) ||
-      contact.phone.toLowerCase().includes(searchTerm) ||
-      contact.address_line_1.toLowerCase().includes(searchTerm) ||
-      contact.postcode.toLowerCase().includes(searchTerm)
+      firstName.includes(searchTerm) ||
+      lastName.includes(searchTerm) ||
+      email.includes(searchTerm) ||
+      phone.includes(searchTerm) ||
+      address.includes(searchTerm) ||
+      postcode.includes(searchTerm)
     );
   });
 
@@ -93,7 +100,7 @@ export function SmsEditor({ onClose, templates, contacts, segments }: SmsEditorP
     setSelectedContacts(selectedContacts.filter(c => c.id !== contactId));
   };
 
-  const handleSegmentSelect = (segment: Segment) => {
+  const handleSegmentSelect = (segment: Segment | null) => {
     setSelectedSegment(segment);
   };
 
@@ -101,9 +108,9 @@ export function SmsEditor({ onClose, templates, contacts, segments }: SmsEditorP
     if (recipientMode === 'contact') {
       return selectedContacts.length;
     } else if (recipientMode === 'segment') {
-      return selectedSegment?.contact_count || 0;
+      return selectedSegment?.contactCount || 0;
     } else {
-      return manualRecipients.split(',').filter(phone => phone.trim()).length;
+      return manualRecipients.split(',').filter((phone: string) => phone.trim()).length;
     }
   };
 
@@ -111,18 +118,15 @@ export function SmsEditor({ onClose, templates, contacts, segments }: SmsEditorP
     const template = (templates || []).find(t => t.id === templateId);
     if (template) {
       setContent(template.content);
-      if (template.notify_template_id) {
-        setTemplateId(template.notify_template_id);
-        setTemplateMode('manual');
-      }
+      // Removed automatic switch to manual mode. The internal ID (selectedTemplate) 
+      // will be used for DB reference, and template.notify_template_id for Notify API.
     }
   };
 
   const specialChars = ['[', ']', '{', '}', '^', '\\', '|', '~', '€'];
-  const expensiveAccents = /[^Ää\u00C9\u00D6\u00DC\u00E0\u00E4\u00E9\u00E8\u00EC\u00F2\u00F6\u00F9\u00FC]/;
 
   useEffect(() => {
-    const hasSpecial = specialChars.some(char => content.includes(char));
+    const hasSpecial = specialChars.some((char: string) => content.includes(char));
     const hasExpensiveAccent = content.split('').some(char => {
       if (!/[a-zA-Z]/.test(char) && /[^\x00-\x7F]/.test(char)) {
         return !['Ä', 'É', 'Ö', 'Ü', 'à', 'ä', 'é', 'è', 'ì', 'ò', 'ö', 'ù', 'ü'].includes(char);
@@ -176,9 +180,11 @@ export function SmsEditor({ onClose, templates, contacts, segments }: SmsEditorP
       return;
     }
 
-    const finalTemplateId = templateMode === 'select' ? selectedTemplate : templateId;
-    
-    if (!content.trim() || !finalTemplateId.trim()) {
+    const externalTemplateId = templateMode === 'select'
+      ? templates.find(t => t.id === selectedTemplate)?.notify_template_id
+      : templateId;
+
+    if (!content.trim() || !externalTemplateId?.trim()) {
       setSendError('Please fill in all required fields including template selection');
       return;
     }
@@ -202,24 +208,74 @@ export function SmsEditor({ onClose, templates, contacts, segments }: SmsEditorP
     setSendError('');
 
     try {
-      let phoneNumbers: string[] = [];
-      
+      if (!currentService) throw new Error('No current service');
+
+      // 1. Resolve recipients
+      let recipientData: { contact_id?: string, personalised_content: any }[] = [];
+
       if (recipientMode === 'contact') {
-        phoneNumbers = selectedContacts.map(contact => contact.phone);
-      } else if (recipientMode === 'manual') {
-        phoneNumbers = manualRecipients.split(',').map(phone => phone.trim());
-      }
-      // For segment mode, you would typically fetch contacts from the segment
-      
-      // Use the active API key for sending
-      for (const phoneNumber of phoneNumbers) {
-        await notifyService.sendSms(finalTemplateId, phoneNumber, {
-          personalisation: {
+        recipientData = selectedContacts.map(contact => ({
+          contact_id: contact.id,
+          personalised_content: {
+            first_name: contact.first_name,
+            last_name: contact.last_name,
+            email: contact.email,
+            phone: contact.phone,
             content: content
-          },
-          reference: `sms-${currentService?.name}-${Date.now()}`
-        }, activeApiKey.key);
+          }
+        }));
+      } else if (recipientMode === 'segment' && selectedSegment) {
+        const segmentContacts = segmentService.getMatchingContacts(selectedSegment.filters, contacts, contactPreferences);
+        recipientData = segmentContacts.map((c: Contact) => ({
+          contact_id: c.id,
+          personalised_content: {
+            first_name: c.first_name,
+            last_name: c.last_name,
+            email: c.email,
+            phone: c.phone,
+            content: content
+          }
+        }));
+
+        if (recipientData.length === 0) {
+          throw new Error('No valid contacts found in this segment');
+        }
+      } else if (recipientMode === 'manual') {
+        // For manual entry, we might not have contact IDs. 
+        // For now, let's assume we need contacts for queuing to work well, 
+        // or support manual recipients in the processing function.
+        // Given the requirement, let's stick to contacts for now to ensure variable parsing works.
+        const manualPhones = manualRecipients.split(',').map((phone: string) => phone.trim()).filter((p: string) => p);
+        if (manualPhones.length > 0) {
+          setSendError('Manual entry is currently only supported via existing contacts for batch processing. Please import contacts first.');
+          setIsSending(false);
+          return;
+        }
       }
+
+      // 2. Create the message
+      const finalTemplateId = templateMode === 'select' ? selectedTemplate : undefined;
+      const message = await messageService.createMessage({
+        service_id: currentService.id,
+        message_type: 'sms',
+        status: 'draft',
+        content_preview: content,
+        recipient_mode: recipientMode,
+        recipients_count: recipientData.length,
+        total_recipients: recipientData.length,
+        segment_id: selectedSegment?.id,
+        template_id: finalTemplateId,
+        metadata: {
+          external_template_id: templateMode === 'manual' ? templateId : undefined,
+          selected_contacts: selectedContacts.map(c => c.id)
+        }
+      });
+
+      // 3. Add recipients
+      await messageService.addRecipients(message.id, recipientData);
+
+      // 4. Trigger send
+      await messageService.sendNow(message.id);
 
       // Close the editor on successful send
       onClose();
@@ -232,7 +288,7 @@ export function SmsEditor({ onClose, templates, contacts, segments }: SmsEditorP
 
   const handleSchedule = async () => {
     const finalTemplateId = templateMode === 'select' ? selectedTemplate : templateId;
-    
+
     if (!content.trim() || !finalTemplateId.trim() || !scheduleDate || !scheduleTime) {
       setSendError('Please fill in all required fields including template selection, schedule date and time');
       return;
@@ -254,15 +310,74 @@ export function SmsEditor({ onClose, templates, contacts, segments }: SmsEditorP
     }
 
     // For now, just show success message as scheduling would require additional backend logic
-    alert('SMS scheduled successfully!');
-    onClose();
+    const scheduledDateTime = `${scheduleDate}T${scheduleTime}:00Z`;
+
+    try {
+      setIsSending(true);
+      if (currentService) {
+        await messageService.createDraft(currentService.id, 'sms', {
+          content_preview: content,
+          recipient_mode: recipientMode,
+          recipients_count: getRecipientCount(),
+          segment_id: selectedSegment?.id,
+          template_id: templateMode === 'select' ? selectedTemplate : undefined,
+          status: 'scheduled',
+          scheduled_at: scheduledDateTime,
+          metadata: {
+            selected_contacts: selectedContacts.map(c => c.id),
+            manual_recipients: manualRecipients,
+            external_template_id: templateMode === 'manual' ? templateId : undefined
+          }
+        });
+      }
+      alert('SMS scheduled successfully!');
+      onClose();
+    } catch (error) {
+      console.error('Error scheduling SMS:', error);
+      setSendError('Failed to schedule SMS');
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  const handleSaveDraft = async () => {
+    if (!currentService) return;
+
+    try {
+      setIsSending(true);
+      const messageData = {
+        content_preview: content,
+        recipient_mode: recipientMode,
+        recipients_count: getRecipientCount(),
+        segment_id: selectedSegment?.id,
+        template_id: templateMode === 'select' ? selectedTemplate : undefined,
+        scheduled_at: scheduleMode === 'scheduled' && scheduleDate && scheduleTime ? `${scheduleDate}T${scheduleTime}:00Z` : undefined,
+        metadata: {
+          selected_contacts: selectedContacts.map(c => c.id),
+          manual_recipients: manualRecipients,
+          external_template_id: templateMode === 'manual' ? templateId : undefined
+        }
+      };
+
+      if (draftId) {
+        await messageService.updateMessage(draftId, messageData);
+      } else {
+        const newDraft = await messageService.createDraft(currentService.id, 'sms', messageData);
+        setDraftId(newDraft.id);
+      }
+      alert('Draft saved successfully');
+    } catch (error) {
+      console.error('Error saving draft:', error);
+      setSendError('Failed to save draft');
+    } finally {
+      setIsSending(false);
+    }
   };
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className={`bg-white rounded-lg shadow-xl w-full overflow-hidden flex flex-col transition-all ${
-        isFullScreen ? 'max-w-full h-full m-0' : 'max-w-2xl max-h-[90vh]'
-      }`}>
+      <div className={`bg-white rounded-lg shadow-xl w-full overflow-hidden flex flex-col transition-all ${isFullScreen ? 'max-w-full h-full m-0' : 'max-w-2xl max-h-[90vh]'
+        }`}>
         <div className="flex items-center justify-between p-6 border-b border-gray-200">
           <div className="flex items-center gap-4">
             <div className="p-3 bg-green-100 rounded-lg">
@@ -278,11 +393,10 @@ export function SmsEditor({ onClose, templates, contacts, segments }: SmsEditorP
                   {activeApiKey && (
                     <>
                       <span className="text-xs text-gray-400">•</span>
-                      <span className={`text-xs font-medium px-2 py-1 rounded ${
-                        activeApiKey.type === 'live' 
-                          ? 'bg-red-100 text-red-700' 
-                          : 'bg-yellow-100 text-yellow-700'
-                      }`}>
+                      <span className={`text-xs font-medium px-2 py-1 rounded ${activeApiKey.type === 'live'
+                        ? 'bg-red-100 text-red-700'
+                        : 'bg-yellow-100 text-yellow-700'
+                        }`}>
                         {activeApiKey.type === 'live' ? 'Live' : 'Test'}
                       </span>
                     </>
@@ -310,7 +424,7 @@ export function SmsEditor({ onClose, templates, contacts, segments }: SmsEditorP
 
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
 
-                    <div>
+          <div>
             <label className="block text-sm font-semibold text-gray-900 mb-3">
               Template Selection
             </label>
@@ -341,7 +455,7 @@ export function SmsEditor({ onClose, templates, contacts, segments }: SmsEditorP
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
                     <option value="">Select a template...</option>
-                    {(templates || []).map((template) => (
+                    {(templates || []).filter(template => template.type === 'sms').map((template) => (
                       <option key={template.id} value={template.id}>
                         {template.name} - {template.description}
                       </option>
@@ -350,7 +464,7 @@ export function SmsEditor({ onClose, templates, contacts, segments }: SmsEditorP
                   {selectedTemplate && (
                     <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded text-xs">
                       <p className="text-blue-800">
-                        Template loaded! Content has been populated. 
+                        Template loaded! Content has been populated.
                         You can edit it before sending.
                       </p>
                     </div>
@@ -603,7 +717,7 @@ export function SmsEditor({ onClose, templates, contacts, segments }: SmsEditorP
                       <option value="">Select a segment...</option>
                       {(segments || []).map((segment) => (
                         <option key={segment.id} value={segment.id}>
-                          {segment.name} ({segment.contact_count} contacts)
+                          {segment.name} ({segment.contactCount || 0} contacts)
                         </option>
                       ))}
                     </select>
@@ -615,7 +729,7 @@ export function SmsEditor({ onClose, templates, contacts, segments }: SmsEditorP
                       <div className="font-medium text-green-900">{selectedSegment.name}</div>
                       <div className="text-sm text-green-700">{selectedSegment.description}</div>
                       <div className="text-xs text-green-600 mt-1">
-                        {selectedSegment.contact_count} contacts will receive this SMS
+                        {selectedSegment.contactCount || 0} contacts will receive this SMS
                       </div>
                     </div>
                   )}
@@ -749,13 +863,14 @@ export function SmsEditor({ onClose, templates, contacts, segments }: SmsEditorP
               Cancel
             </button>
             <div className="flex gap-3">
-              <button 
+              <button
+                onClick={handleSaveDraft}
                 disabled={isSending}
                 className="px-6 py-2 border border-gray-300 rounded-lg hover:bg-gray-100 transition-colors font-medium disabled:opacity-50"
               >
                 Save Draft
               </button>
-              <button 
+              <button
                 onClick={scheduleMode === 'now' ? handleSend : handleSchedule}
                 disabled={isSending}
                 className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium disabled:opacity-50"

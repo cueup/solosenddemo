@@ -1,24 +1,7 @@
-import { useState } from 'react';
-import { X, Plus, Settings, Key, Eye, EyeOff, Edit, Trash2, Globe, TestTube, Power, PowerOff } from 'lucide-react';
-
-interface ApiKey {
-  id: string;
-  name: string;
-  key: string;
-  type: 'test' | 'live';
-  isActive: boolean;
-  created_at: string;
-  last_used?: string;
-}
-
-interface Service {
-  id: string;
-  name: string;
-  description: string;
-  apiKeys: ApiKey[];
-  created_at: string;
-  updated_at: string;
-}
+import { useState, useEffect } from 'react';
+import { X, Plus, Settings, Key, Eye, EyeOff, Trash2, Globe, TestTube, Power, PowerOff } from 'lucide-react';
+import { useService } from '../../contexts/ServiceContext';
+import { serviceService, ApiKey, Service } from '../../services/serviceService';
 
 interface ServiceManagerProps {
   onClose: () => void;
@@ -27,140 +10,138 @@ interface ServiceManagerProps {
 }
 
 export function ServiceManager({ onClose, onServiceSelect, currentService }: ServiceManagerProps) {
-  const [services, setServices] = useState<Service[]>([
-    {
-      id: '1',
-      name: 'Department for Work and Pensions',
-      description: 'Main service for DWP communications including benefit notifications and updates',
-      apiKeys: [
-        {
-          id: '1',
-          name: 'Production API',
-          key: 'dwp-live-12345678-1234-1234-1234-123456789012',
-          type: 'live',
-          isActive: true,
-          created_at: '2024-01-15T10:00:00Z',
-          last_used: '2024-10-31T09:30:00Z'
-        },
-        {
-          id: '2',
-          name: 'Testing API',
-          key: 'dwp-test-87654321-4321-4321-4321-210987654321',
-          type: 'test',
-          isActive: false,
-          created_at: '2024-01-15T10:05:00Z',
-          last_used: '2024-10-30T14:20:00Z'
-        }
-      ],
-      created_at: '2024-01-15T10:00:00Z',
-      updated_at: '2024-10-31T09:30:00Z'
-    },
-    {
-      id: '2',
-      name: 'HM Revenue & Customs',
-      description: 'HMRC service for tax-related communications and reminders',
-      apiKeys: [
-        {
-          id: '3',
-          name: 'HMRC Live',
-          key: 'hmrc-live-11111111-2222-3333-4444-555555555555',
-          type: 'live',
-          isActive: false,
-          created_at: '2024-02-01T09:00:00Z',
-          last_used: '2024-10-29T16:45:00Z'
-        },
-        {
-          id: '4',
-          name: 'HMRC Test Environment',
-          key: 'hmrc-test-99999999-8888-7777-6666-555555555555',
-          type: 'test',
-          isActive: true,
-          created_at: '2024-02-01T09:05:00Z',
-          last_used: '2024-10-31T11:15:00Z'
-        }
-      ],
-      created_at: '2024-02-01T09:00:00Z',
-      updated_at: '2024-10-29T16:45:00Z'
-    }
-  ]);
+  const { services, refreshServices } = useService();
+  const [apiKeys, setApiKeys] = useState<Record<string, ApiKey[]>>({});
+  const [loadingKeys, setLoadingKeys] = useState<Record<string, boolean>>({});
 
   const [showNewServiceForm, setShowNewServiceForm] = useState(false);
   const [showNewApiKeyForm, setShowNewApiKeyForm] = useState<string | null>(null);
-  const [newService, setNewService] = useState({ name: '', description: '' });
+  const [newService, setNewService] = useState({
+    name: '',
+    description: '',
+    apiKey: '',
+    apiKeyName: 'Default API Key',
+    apiKeyType: 'test' as 'test' | 'live'
+  });
   const [newApiKey, setNewApiKey] = useState({ name: '', key: '', type: 'test' as 'test' | 'live' });
   const [visibleKeys, setVisibleKeys] = useState<Set<string>>(new Set());
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleCreateService = () => {
+  // Load API keys for all services
+  useEffect(() => {
+    const loadKeys = async () => {
+      const keysMap: Record<string, ApiKey[]> = {};
+      const loadingMap: Record<string, boolean> = {};
+
+      for (const service of services) {
+        loadingMap[service.id] = true;
+      }
+      setLoadingKeys(loadingMap);
+
+      for (const service of services) {
+        try {
+          const keys = await serviceService.getApiKeys(service.id);
+          keysMap[service.id] = keys;
+        } catch (error) {
+          console.error(`Error loading keys for service ${service.id}:`, error);
+        } finally {
+          setLoadingKeys(prev => ({ ...prev, [service.id]: false }));
+        }
+      }
+      setApiKeys(keysMap);
+    };
+
+    if (services.length > 0) {
+      loadKeys();
+    }
+  }, [services]);
+
+  const handleCreateService = async () => {
     if (!newService.name.trim()) return;
+    setIsSubmitting(true);
 
-    const service: Service = {
-      id: Date.now().toString(),
-      name: newService.name,
-      description: newService.description,
-      apiKeys: [],
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
-    };
+    try {
+      const service = await serviceService.createService(newService.name, newService.description);
 
-    setServices([...services, service]);
-    setNewService({ name: '', description: '' });
-    setShowNewServiceForm(false);
-  };
+      if (newService.apiKey) {
+        await serviceService.createApiKey(service.id, newService.apiKeyName, newService.apiKey, newService.apiKeyType);
+      }
 
-  const handleCreateApiKey = (serviceId: string) => {
-    if (!newApiKey.name.trim() || !newApiKey.key.trim()) return;
-
-    const apiKey: ApiKey = {
-      id: Date.now().toString(),
-      name: newApiKey.name,
-      key: newApiKey.key,
-      type: newApiKey.type,
-      isActive: false,
-      created_at: new Date().toISOString()
-    };
-
-    setServices(services.map(service => 
-      service.id === serviceId 
-        ? { ...service, apiKeys: [...service.apiKeys, apiKey], updated_at: new Date().toISOString() }
-        : service
-    ));
-
-    setNewApiKey({ name: '', key: '', type: 'test' });
-    setShowNewApiKeyForm(null);
-  };
-
-  const handleToggleApiKey = (serviceId: string, apiKeyId: string) => {
-    setServices(services.map(service => 
-      service.id === serviceId 
-        ? {
-            ...service,
-            apiKeys: service.apiKeys.map(key => ({
-              ...key,
-              isActive: key.id === apiKeyId ? !key.isActive : false // Only one can be active
-            })),
-            updated_at: new Date().toISOString()
-          }
-        : service
-    ));
-  };
-
-  const handleDeleteApiKey = (serviceId: string, apiKeyId: string) => {
-    if (confirm('Are you sure you want to delete this API key?')) {
-      setServices(services.map(service => 
-        service.id === serviceId 
-          ? { 
-              ...service, 
-              apiKeys: service.apiKeys.filter(key => key.id !== apiKeyId),
-              updated_at: new Date().toISOString()
-            }
-          : service
-      ));
+      await refreshServices();
+      setNewService({
+        name: '',
+        description: '',
+        apiKey: '',
+        apiKeyName: 'Default API Key',
+        apiKeyType: 'test'
+      });
+      setShowNewServiceForm(false);
+    } catch (error) {
+      console.error('Error creating service:', error);
+      alert('Failed to create service');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
-  const handleDeleteService = (serviceId: string) => {
+  const handleCreateApiKey = async (serviceId: string) => {
+    if (!newApiKey.name.trim()) return;
+    setIsSubmitting(true);
+
+    try {
+      await serviceService.createApiKey(serviceId, newApiKey.name, newApiKey.key, newApiKey.type);
+      // Refresh keys for this service
+      const keys = await serviceService.getApiKeys(serviceId);
+      setApiKeys(prev => ({ ...prev, [serviceId]: keys }));
+
+      setNewApiKey({ name: '', key: '', type: 'test' });
+      setShowNewApiKeyForm(null);
+    } catch (error) {
+      console.error('Error creating API key:', error);
+      alert('Failed to create API key');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleToggleApiKey = async (serviceId: string, apiKeyId: string, currentStatus: boolean) => {
+    try {
+      await serviceService.toggleApiKey(serviceId, apiKeyId, !currentStatus);
+      // Refresh keys
+      const keys = await serviceService.getApiKeys(serviceId);
+      setApiKeys(prev => ({ ...prev, [serviceId]: keys }));
+    } catch (error) {
+      console.error('Error toggling API key:', error);
+      alert('Failed to toggle API key');
+    }
+  };
+
+  const handleDeleteApiKey = async (serviceId: string, apiKeyId: string) => {
+    if (confirm('Are you sure you want to delete this API key?')) {
+      try {
+        await serviceService.deleteApiKey(apiKeyId);
+        // Refresh keys
+        const keys = await serviceService.getApiKeys(serviceId);
+        setApiKeys(prev => ({ ...prev, [serviceId]: keys }));
+      } catch (error) {
+        console.error('Error deleting API key:', error);
+        alert('Failed to delete API key');
+      }
+    }
+  };
+
+  const handleDeleteService = async (serviceId: string) => {
     if (confirm('Are you sure you want to delete this service? This will also delete all associated API keys.')) {
-      setServices(services.filter(service => service.id !== serviceId));
+      try {
+        await serviceService.deleteService(serviceId);
+        await refreshServices();
+        if (currentService?.id === serviceId) {
+          onServiceSelect(null as any); // Clear selection if deleted
+        }
+      } catch (error) {
+        console.error('Error deleting service:', error);
+        alert('Failed to delete service');
+      }
     }
   };
 
@@ -175,8 +156,9 @@ export function ServiceManager({ onClose, onServiceSelect, currentService }: Ser
   };
 
   const maskApiKey = (key: string) => {
+    if (!key) return '....................';
     if (key.length <= 8) return key;
-    return key.substring(0, 8) + '•'.repeat(key.length - 12) + key.substring(key.length - 4);
+    return key.substring(0, 8) + '•'.repeat(Math.max(0, key.length - 12)) + key.substring(key.length - 4);
   };
 
   const formatDate = (dateString: string) => {
@@ -211,6 +193,7 @@ export function ServiceManager({ onClose, onServiceSelect, currentService }: Ser
             <button
               onClick={() => setShowNewServiceForm(true)}
               className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
+              disabled={isSubmitting}
             >
               <Plus size={16} />
               Add Service
@@ -241,12 +224,51 @@ export function ServiceManager({ onClose, onServiceSelect, currentService }: Ser
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
+
+                <div className="border-t border-gray-200 pt-3 mt-3">
+                  <h5 className="text-sm font-medium text-gray-900 mb-3">Initial API Key (Mandatory)</h5>
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Key Name</label>
+                      <input
+                        type="text"
+                        value={newService.apiKeyName}
+                        onChange={(e) => setNewService({ ...newService, apiKeyName: e.target.value })}
+                        placeholder="e.g. Default API Key"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">API Key</label>
+                      <input
+                        type="text"
+                        value={newService.apiKey}
+                        onChange={(e) => setNewService({ ...newService, apiKey: e.target.value })}
+                        placeholder="Paste your GOV.UK Notify API key here"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Environment</label>
+                      <select
+                        value={newService.apiKeyType}
+                        onChange={(e) => setNewService({ ...newService, apiKeyType: e.target.value as 'test' | 'live' })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      >
+                        <option value="test">Test</option>
+                        <option value="live">Live</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
                 <div className="flex gap-2">
                   <button
                     onClick={handleCreateService}
-                    className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+                    disabled={isSubmitting || !newService.name.trim() || !newService.apiKey.trim()}
+                    className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
                   >
-                    Create Service
+                    {isSubmitting ? 'Creating...' : 'Create Service'}
                   </button>
                   <button
                     onClick={() => setShowNewServiceForm(false)}
@@ -273,9 +295,8 @@ export function ServiceManager({ onClose, onServiceSelect, currentService }: Ser
                           </span>
                         )}
                       </div>
-                      <p className="text-sm text-gray-600 mt-1">{service.description}</p>
-                      <p className="text-xs text-gray-500 mt-2">
-                        Created {formatDate(service.created_at)} • Last updated {formatDate(service.updated_at)}
+                      <p className="text-sm text-gray-600 mt-1">
+                        Created {formatDate(service.created_at)}
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
@@ -298,7 +319,9 @@ export function ServiceManager({ onClose, onServiceSelect, currentService }: Ser
 
                 <div className="p-4">
                   <div className="flex items-center justify-between mb-4">
-                    <h5 className="font-medium text-gray-900">API Keys ({service.apiKeys.length})</h5>
+                    <h5 className="font-medium text-gray-900">
+                      API Keys ({apiKeys[service.id]?.length || 0})
+                    </h5>
                     <button
                       onClick={() => setShowNewApiKeyForm(service.id)}
                       className="bg-gray-100 text-gray-700 px-3 py-1 rounded text-sm hover:bg-gray-200 transition-colors flex items-center gap-1"
@@ -346,9 +369,10 @@ export function ServiceManager({ onClose, onServiceSelect, currentService }: Ser
                         <div className="flex gap-2">
                           <button
                             onClick={() => handleCreateApiKey(service.id)}
-                            className="bg-blue-600 text-white px-3 py-2 rounded-lg hover:bg-blue-700 transition-colors text-sm"
+                            disabled={isSubmitting || !newApiKey.name.trim() || !newApiKey.key.trim()}
+                            className="bg-blue-600 text-white px-3 py-2 rounded-lg hover:bg-blue-700 transition-colors text-sm disabled:opacity-50"
                           >
-                            Add Key
+                            {isSubmitting ? 'Adding...' : 'Add Key'}
                           </button>
                           <button
                             onClick={() => setShowNewApiKeyForm(null)}
@@ -361,7 +385,9 @@ export function ServiceManager({ onClose, onServiceSelect, currentService }: Ser
                     </div>
                   )}
 
-                  {service.apiKeys.length === 0 ? (
+                  {loadingKeys[service.id] ? (
+                    <div className="text-center py-4 text-gray-500">Loading keys...</div>
+                  ) : !apiKeys[service.id] || apiKeys[service.id].length === 0 ? (
                     <div className="text-center py-8 text-gray-500">
                       <Key size={32} className="mx-auto mb-2 text-gray-300" />
                       <p className="text-sm">No API keys configured</p>
@@ -369,31 +395,29 @@ export function ServiceManager({ onClose, onServiceSelect, currentService }: Ser
                     </div>
                   ) : (
                     <div className="space-y-3">
-                      {service.apiKeys.map((apiKey) => (
+                      {apiKeys[service.id].map((apiKey) => (
                         <div
                           key={apiKey.id}
-                          className={`border rounded-lg p-3 ${
-                            apiKey.isActive 
-                              ? 'border-green-200 bg-green-50' 
-                              : 'border-gray-200 bg-gray-50'
-                          }`}
+                          className={`border rounded-lg p-3 ${apiKey.is_active
+                            ? 'border-green-200 bg-green-50'
+                            : 'border-gray-200 bg-gray-50'
+                            }`}
                         >
                           <div className="flex items-center justify-between">
                             <div className="flex-1">
                               <div className="flex items-center gap-2 mb-1">
                                 <span className="font-medium text-gray-900">{apiKey.name}</span>
-                                <span className={`text-xs font-medium px-2 py-1 rounded ${
-                                  apiKey.type === 'live' 
-                                    ? 'bg-red-100 text-red-700' 
-                                    : 'bg-yellow-100 text-yellow-700'
-                                }`}>
-                                  {apiKey.type === 'live' ? (
+                                <span className={`text-xs font-medium px-2 py-1 rounded ${(apiKey.permissions && apiKey.permissions.includes('live')) || apiKey.type === 'live'
+                                  ? 'bg-red-100 text-red-700'
+                                  : 'bg-yellow-100 text-yellow-700'
+                                  }`}>
+                                  {(apiKey.permissions && apiKey.permissions.includes('live')) || apiKey.type === 'live' ? (
                                     <><Globe size={12} className="inline mr-1" />Live</>
                                   ) : (
                                     <><TestTube size={12} className="inline mr-1" />Test</>
                                   )}
                                 </span>
-                                {apiKey.isActive && (
+                                {apiKey.is_active && (
                                   <span className="bg-green-100 text-green-700 text-xs font-medium px-2 py-1 rounded">
                                     Active
                                   </span>
@@ -401,7 +425,7 @@ export function ServiceManager({ onClose, onServiceSelect, currentService }: Ser
                               </div>
                               <div className="flex items-center gap-2 text-sm text-gray-600">
                                 <code className="bg-white px-2 py-1 rounded border text-xs">
-                                  {visibleKeys.has(apiKey.id) ? apiKey.key : maskApiKey(apiKey.key)}
+                                  {visibleKeys.has(apiKey.id) ? apiKey.key_hash : maskApiKey(apiKey.key_hash)}
                                 </code>
                                 <button
                                   onClick={() => toggleKeyVisibility(apiKey.id)}
@@ -422,15 +446,14 @@ export function ServiceManager({ onClose, onServiceSelect, currentService }: Ser
                             </div>
                             <div className="flex items-center gap-2">
                               <button
-                                onClick={() => handleToggleApiKey(service.id, apiKey.id)}
-                                className={`p-2 rounded-lg transition-colors ${
-                                  apiKey.isActive
-                                    ? 'hover:bg-red-100 text-red-600'
-                                    : 'hover:bg-green-100 text-green-600'
-                                }`}
-                                title={apiKey.isActive ? 'Deactivate key' : 'Activate key'}
+                                onClick={() => handleToggleApiKey(service.id, apiKey.id, apiKey.is_active)}
+                                className={`p-2 rounded-lg transition-colors ${apiKey.is_active
+                                  ? 'hover:bg-red-100 text-red-600'
+                                  : 'hover:bg-green-100 text-green-600'
+                                  }`}
+                                title={apiKey.is_active ? 'Deactivate key' : 'Activate key'}
                               >
-                                {apiKey.isActive ? (
+                                {apiKey.is_active ? (
                                   <PowerOff size={16} />
                                 ) : (
                                   <Power size={16} />
@@ -471,7 +494,7 @@ export function ServiceManager({ onClose, onServiceSelect, currentService }: Ser
             Close
           </button>
         </div>
-      </div>
-    </div>
+      </div >
+    </div >
   );
 }

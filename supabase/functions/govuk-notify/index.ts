@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { NotifyClient } from "npm:notifications-node-client@8.2.1";
+import { createClient } from "npm:@supabase/supabase-js@2.39.7";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -16,11 +17,36 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const apiKey = Deno.env.get("GOVUK_NOTIFY_API_KEY");
-    
+    const { action, serviceId, apiKey: providedApiKey, ...params } = await req.json();
+
+    let apiKey = providedApiKey;
+
+    // If no API key provided, try to fetch from database if serviceId is present
+    if (!apiKey && serviceId) {
+      const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
+      const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+      const supabase = createClient(supabaseUrl, supabaseKey);
+
+      const { data: apiKeys, error } = await supabase
+        .from("api_keys")
+        .select("key_hash")
+        .eq("service_id", serviceId)
+        .eq("is_active", true)
+        .limit(1);
+
+      if (!error && apiKeys && apiKeys.length > 0) {
+        apiKey = apiKeys[0].key_hash;
+      }
+    }
+
+    // Fallback to environment variable
+    if (!apiKey) {
+      apiKey = Deno.env.get("GOVUK_NOTIFY_API_KEY");
+    }
+
     if (!apiKey) {
       return new Response(
-        JSON.stringify({ error: "GOV.UK Notify API key not configured" }),
+        JSON.stringify({ error: "GOV.UK Notify API key not configured or provided" }),
         {
           status: 500,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -29,7 +55,6 @@ Deno.serve(async (req: Request) => {
     }
 
     const notifyClient = new NotifyClient(apiKey);
-    const { action, ...params } = await req.json();
 
     let result;
 
@@ -89,7 +114,7 @@ Deno.serve(async (req: Request) => {
     );
   } catch (error: any) {
     console.error("Error:", error);
-    
+
     const errorMessage = error.response?.data?.errors?.[0]?.message || error.message || "Unknown error";
     const errorType = error.response?.data?.errors?.[0]?.error || "Error";
     const statusCode = error.response?.data?.status_code || error.response?.status || 500;

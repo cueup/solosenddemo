@@ -1,4 +1,4 @@
-import { supabase } from '../lib/supabase';
+import { supabase, Profile } from '../lib/supabase';
 
 export interface InviteMemberData {
   email: string;
@@ -7,109 +7,36 @@ export interface InviteMemberData {
   service_id?: string;
 }
 
-export interface TeamInvitation {
-  id: string;
-  email: string;
-  full_name: string;
-  role: 'admin' | 'editor' | 'viewer';
-  service_id?: string;
-  status: 'pending' | 'accepted' | 'expired';
-  invited_by: string;
-  expires_at: string;
-  created_at: string;
-}
-
-class InviteService {
-  async inviteTeamMember(memberData: InviteMemberData): Promise<TeamInvitation> {
+export class InviteService {
+  async inviteTeamMember(memberData: InviteMemberData): Promise<Profile> {
     try {
-      // Check if user is already a team member
+      // Check if user is already a member (active or pending)
       const { data: existingMember } = await supabase
-        .from('team_members')
-        .select('id')
+        .from('profiles')
+        .select('*')
         .eq('email', memberData.email)
         .single();
 
       if (existingMember) {
-        throw new Error('This email address is already a team member');
+        if (existingMember.status === 'active') {
+          throw new Error('This email address is already an active platform member');
+        } else {
+          throw new Error('An invitation has already been sent to this email address');
+        }
       }
 
-      // Check if there's already a pending invitation
-      const { data: existingInvite } = await supabase
-        .from('team_invitations')
-        .select('id')
-        .eq('email', memberData.email)
-        .eq('status', 'pending')
-        .single();
+      const { data: user } = await supabase.auth.getUser();
 
-      if (existingInvite) {
-        throw new Error('An invitation has already been sent to this email address');
-      }
-
-      // Create the invitation
-      const expiresAt = new Date();
-      expiresAt.setDate(expiresAt.getDate() + 7); // Expires in 7 days
-
-      const { data: invitation, error } = await supabase
-        .from('team_invitations')
+      // Create the pending member directly in profiles
+      const { data: newMember, error } = await supabase
+        .from('profiles')
         .insert({
           email: memberData.email,
           full_name: memberData.full_name,
           role: memberData.role,
-          service_id: memberData.service_id,
           status: 'pending',
-          expires_at: expiresAt.toISOString()
-        })
-        .select()
-        .single();
-
-      if (error) throw error;
-
-      // Send invitation email (this would typically be handled by an edge function)
-      await this.sendInvitationEmail(invitation);
-
-      return invitation;
-    } catch (error: any) {
-      console.error('Error inviting team member:', error);
-      throw new Error(error.message || 'Failed to send invitation');
-    }
-  }
-
-  async inviteServiceMember(memberData: InviteMemberData, serviceId: string): Promise<TeamInvitation> {
-    try {
-      // Check if user is already a service member
-      const { data: existingMember } = await supabase
-        .from('service_members')
-        .select('id')
-        .eq('service_id', serviceId)
-        .eq('user_id', (await supabase.auth.getUser()).data.user?.id)
-        .single();
-
-      // Check if there's already a pending service invitation
-      const { data: existingInvite } = await supabase
-        .from('service_invitations')
-        .select('id')
-        .eq('email', memberData.email)
-        .eq('service_id', serviceId)
-        .eq('status', 'pending')
-        .single();
-
-      if (existingInvite) {
-        throw new Error('An invitation has already been sent to this email address for this service');
-      }
-
-      // Create the service invitation
-      const expiresAt = new Date();
-      expiresAt.setDate(expiresAt.getDate() + 7); // Expires in 7 days
-
-      const { data: invitation, error } = await supabase
-        .from('service_invitations')
-        .insert({
-          email: memberData.email,
-          full_name: memberData.full_name,
-          role: memberData.role,
-          service_id: serviceId,
-          status: 'pending',
-          expires_at: expiresAt.toISOString()
+          invited_by: user.user?.id,
+          invited_at: new Date().toISOString()
         })
         .select()
         .single();
@@ -117,104 +44,127 @@ class InviteService {
       if (error) throw error;
 
       // Send invitation email
-      await this.sendServiceInvitationEmail(invitation, serviceId);
+      await this.sendInvitationEmail(newMember);
 
-      return invitation;
+      return newMember;
+    } catch (error: any) {
+      console.error('Error inviting platform member:', error);
+      throw new Error(error.message || 'Failed to send invitation');
+    }
+  }
+
+  async inviteServiceMember(memberData: InviteMemberData, serviceId: string): Promise<any> {
+    try {
+      const { data: user } = await supabase.auth.getUser();
+
+      // Check if user is already a service member (by email) in this service
+      const { data: existingMember } = await supabase
+        .from('service_members')
+        .select('*')
+        .eq('service_id', serviceId)
+        .eq('email', memberData.email)
+        .maybeSingle();
+
+      if (existingMember) {
+        if (existingMember.status === 'active') {
+          throw new Error('This email address is already an active member of this service');
+        } else {
+          throw new Error('An invitation has already been sent to this email address for this service');
+        }
+      }
+
+      const { data: newMember, error } = await supabase
+        .from('service_members')
+        .insert({
+          email: memberData.email,
+          full_name: memberData.full_name,
+          role: memberData.role,
+          service_id: serviceId,
+          status: 'pending',
+          invited_by: user.user?.id
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      // Send invitation email
+      await this.sendServiceInvitationEmail(newMember, serviceId);
+
+      return newMember;
     } catch (error: any) {
       console.error('Error inviting service member:', error);
       throw new Error(error.message || 'Failed to send invitation');
     }
   }
 
-  private async sendInvitationEmail(invitation: TeamInvitation):
-Promise<void> {
-  try {
-    const { error } = await supabase.functions.invoke('send-invitation', 
-{
-      body: {
-        invitation,
-        type: 'team'
-      }
-    });
-                                                                         
-    if (error) throw error;
-  } catch (error) {
-    console.error('Error sending invitation email:', error);
-    // Don't throw here as the invitation was created successfully       
-  }
-}
-
-private async sendServiceInvitationEmail(invitation: TeamInvitation,     
-serviceId: string): Promise<void> {
-  try {
-    const { error } = await supabase.functions.invoke('send-invitation', 
-{                                                                        
-      body: {
-        invitation,
-        type: 'service',
-        serviceId
-      }
-    });
-                                                                         
-    if (error) throw error;
-  } catch (error) {
-    console.error('Error sending service invitation email:', error);     
-  }
-}
-
-  async getPendingInvitations(): Promise<TeamInvitation[]> {
+  private async sendServiceInvitationEmail(member: any, serviceId: string): Promise<void> {
     try {
-      const { data, error } = await supabase
-        .from('team_invitations')
+      const { error } = await supabase.functions.invoke('send-invitation', {
+        body: {
+          invitation: member,
+          type: 'service',
+          serviceId,
+          link: `${window.location.origin}/signup?email=${encodeURIComponent(member.email)}&serviceId=${serviceId}`
+        }
+      });
+
+      if (error) {
+        console.error('Failed to invoke send-invitation function:', error);
+      }
+    } catch (error) {
+      console.error('Error sending service invitation email:', error);
+    }
+  }
+
+  private async sendInvitationEmail(member: Profile): Promise<void> {
+    try {
+      const { error } = await supabase.functions.invoke('send-invitation', {
+        body: {
+          invitation: member, // Passing the member object which has email/name/role
+          type: 'team',
+          link: `${window.location.origin}/signup?email=${encodeURIComponent(member.email)}` // Basic link
+        }
+      });
+
+      if (error) {
+        // Log but don't fail the operation since the DB part worked
+        console.error('Failed to invoke send-invitation function:', error);
+      }
+    } catch (error) {
+      console.error('Error sending invitation email:', error);
+    }
+  }
+
+  async resendInvite(memberId: string): Promise<void> {
+    try {
+      const { data: member, error } = await supabase
+        .from('profiles')
         .select('*')
-        .eq('status', 'pending')
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-      return data || [];
-    } catch (error) {
-      console.error('Error fetching pending invitations:', error);
-      return [];
-    }
-  }
-
-  async cancelInvitation(invitationId: string): Promise<void> {
-    try {
-      const { error } = await supabase
-        .from('team_invitations')
-        .update({ status: 'cancelled' })
-        .eq('id', invitationId);
-
-      if (error) throw error;
-    } catch (error) {
-      console.error('Error cancelling invitation:', error);
-      throw new Error('Failed to cancel invitation');
-    }
-  }
-
-  async resendInvitation(invitationId: string): Promise<void> {
-    try {
-      // Update expiry date
-      const expiresAt = new Date();
-      expiresAt.setDate(expiresAt.getDate() + 7);
-
-      const { data: invitation, error } = await supabase
-        .from('team_invitations')
-        .update({ 
-          expires_at: expiresAt.toISOString(),
-          status: 'pending'
-        })
-        .eq('id', invitationId)
-        .select()
+        .eq('id', memberId)
         .single();
 
-      if (error) throw error;
+      if (error || !member) throw new Error('Member not found');
 
-      // Resend email
-      await this.sendInvitationEmail(invitation);
+      await this.sendInvitationEmail(member);
     } catch (error) {
       console.error('Error resending invitation:', error);
-      throw new Error('Failed to resend invitation');
+    }
+  }
+
+  async resendServiceInvite(memberId: string): Promise<void> {
+    try {
+      const { data: member, error } = await supabase
+        .from('service_members')
+        .select('*')
+        .eq('id', memberId)
+        .single();
+
+      if (error || !member) throw new Error('Member not found');
+
+      await this.sendServiceInvitationEmail(member, member.service_id);
+    } catch (error) {
+      console.error('Error resending service invitation:', error);
     }
   }
 }

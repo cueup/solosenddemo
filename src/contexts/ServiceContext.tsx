@@ -1,27 +1,12 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-
-interface ApiKey {
-  id: string;
-  name: string;
-  key: string;
-  type: 'test' | 'live';
-  isActive: boolean;
-  created_at: string;
-  last_used?: string;
-}
-
-interface Service {
-  id: string;
-  name: string;
-  description: string;
-  apiKeys: ApiKey[];
-  created_at: string;
-  updated_at: string;
-}
+import { serviceService, Service, ApiKey } from '../services/serviceService';
+import { useAuth } from './AuthContext';
 
 interface ServiceContextType {
   currentService: Service | null;
   setCurrentService: (service: Service | null) => void;
+  services: Service[];
+  refreshServices: () => Promise<void>;
   activeApiKey: ApiKey | null;
   isLoading: boolean;
 }
@@ -29,40 +14,80 @@ interface ServiceContextType {
 const ServiceContext = createContext<ServiceContextType | undefined>(undefined);
 
 export function ServiceProvider({ children }: { children: ReactNode }) {
+  const { user } = useAuth();
   const [currentService, setCurrentService] = useState<Service | null>(null);
+  const [services, setServices] = useState<Service[]>([]);
+  const [activeApiKey, setActiveApiKey] = useState<ApiKey | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Get the active API key from the current service
-  const activeApiKey = currentService?.apiKeys.find(key => key.isActive) || null;
-
-  useEffect(() => {
-    // Load the last selected service from localStorage
-    const savedServiceId = localStorage.getItem('currentServiceId');
-    if (savedServiceId) {
-      // In a real app, you'd fetch the service from your backend
-      // For now, we'll use mock data
-      const mockService: Service = {
-        id: savedServiceId,
-        name: 'Department for Work and Pensions',
-        description: 'Main service for DWP communications',
-        apiKeys: [
-          {
-            id: '1',
-            name: 'Production API',
-            key: 'dwp-live-12345678-1234-1234-1234-123456789012',
-            type: 'live',
-            isActive: true,
-            created_at: '2024-01-15T10:00:00Z',
-            last_used: '2024-10-31T09:30:00Z'
-          }
-        ],
-        created_at: '2024-01-15T10:00:00Z',
-        updated_at: '2024-10-31T09:30:00Z'
-      };
-      setCurrentService(mockService);
+  const refreshServices = async () => {
+    if (!user) {
+      setServices([]);
+      setCurrentService(null);
+      return;
     }
-    setIsLoading(false);
-  }, []);
+
+    try {
+      const data = await serviceService.getServices();
+      setServices(data);
+
+      // If we have a current service, make sure it's still in the list
+      if (currentService) {
+        const stillExists = data.find(s => s.id === currentService.id);
+        if (!stillExists) {
+          setCurrentService(data.length > 0 ? data[0] : null);
+        } else {
+          // Update current service with latest data
+          setCurrentService(stillExists);
+        }
+      } else if (data.length > 0) {
+        // If no service selected but we have some, select the first one
+        // Check local storage first
+        const savedServiceId = localStorage.getItem('currentServiceId');
+        const savedService = data.find(s => s.id === savedServiceId);
+        setCurrentService(savedService || data[0]);
+      }
+    } catch (error) {
+      console.error('Error fetching services:', error);
+    }
+  };
+
+  // Load services when user changes
+  useEffect(() => {
+    let mounted = true;
+
+    const load = async () => {
+      setIsLoading(true);
+      await refreshServices();
+      if (mounted) setIsLoading(false);
+    };
+
+    load();
+
+    return () => {
+      mounted = false;
+    };
+  }, [user]);
+
+  // Update active API key when service changes
+  useEffect(() => {
+    const loadApiKey = async () => {
+      if (!currentService) {
+        setActiveApiKey(null);
+        return;
+      }
+
+      try {
+        const keys = await serviceService.getApiKeys(currentService.id);
+        const active = keys.find(k => k.is_active);
+        setActiveApiKey(active || null);
+      } catch (error) {
+        console.error('Error fetching API keys:', error);
+      }
+    };
+
+    loadApiKey();
+  }, [currentService]);
 
   const handleSetCurrentService = (service: Service | null) => {
     setCurrentService(service);
@@ -78,6 +103,8 @@ export function ServiceProvider({ children }: { children: ReactNode }) {
       value={{
         currentService,
         setCurrentService: handleSetCurrentService,
+        services,
+        refreshServices,
         activeApiKey,
         isLoading
       }}

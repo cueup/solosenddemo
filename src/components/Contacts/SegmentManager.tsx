@@ -1,31 +1,9 @@
-import { useState } from 'react';
-import { X, Plus, Filter, Users, MapPin, Tag, Mail, Phone, Edit3, Trash2, Save, AlertCircle } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { X, Plus, Filter, Users, MapPin, Tag, Mail, Phone, Edit3, Trash2, Save, AlertCircle, CheckSquare } from 'lucide-react';
+import { segmentService, Segment, SegmentFilter } from '../../services/segmentService';
+import { contactPreferenceService, ContactPreferences } from '../../services/contactPreferenceService';
 
-interface Contact {
-  title: string;
-  name: string;
-  email: string;
-  phone: string;
-  address: string;
-  tags: string[];
-}
-
-interface Segment {
-  id: string;
-  name: string;
-  description: string;
-  filters: SegmentFilter[];
-  contactCount: number;
-  created_at: string;
-  updated_at: string;
-}
-
-interface SegmentFilter {
-  field: 'tags' | 'address' | 'email' | 'phone' | 'name';
-  operator: 'contains' | 'equals' | 'starts_with' | 'ends_with' | 'not_contains';
-  value: string;
-  logic?: 'AND' | 'OR';
-}
+import { contactService, Contact } from '../../services/contactService';
 
 interface SegmentManagerProps {
   contacts: Contact[];
@@ -34,135 +12,109 @@ interface SegmentManagerProps {
 }
 
 export function SegmentManager({ contacts, onClose, onSegmentCreated }: SegmentManagerProps) {
-  const [segments, setSegments] = useState<Segment[]>([
-    {
-      id: '1',
-      name: 'VIP Contacts',
-      description: 'High priority contacts with VIP tag',
-      filters: [{ field: 'tags', operator: 'contains', value: 'VIP' }],
-      contactCount: 2,
-      created_at: '2024-10-20T10:00:00Z',
-      updated_at: '2024-10-20T10:00:00Z'
-    },
-    {
-      id: '2',
-      name: 'London Residents',
-      description: 'Contacts based in London',
-      filters: [{ field: 'address', operator: 'contains', value: 'London' }],
-      contactCount: 1,
-      created_at: '2024-10-19T14:30:00Z',
-      updated_at: '2024-10-19T14:30:00Z'
-    },
-    {
-      id: '3',
-      name: 'Government Officials',
-      description: 'Government tagged contacts in major cities',
-      filters: [
-        { field: 'tags', operator: 'contains', value: 'Government' },
-        { field: 'address', operator: 'contains', value: 'London', logic: 'OR' },
-        { field: 'address', operator: 'contains', value: 'Manchester', logic: 'OR' }
-      ],
-      contactCount: 3,
-      created_at: '2024-10-18T09:15:00Z',
-      updated_at: '2024-10-18T09:15:00Z'
-    }
-  ]);
-
+  const [segments, setSegments] = useState<Segment[]>([]);
+  const [contactPreferences, setContactPreferences] = useState<Record<string, ContactPreferences>>({});
+  const [loading, setLoading] = useState(true);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [editingSegment, setEditingSegment] = useState<Segment | null>(null);
   const [selectedSegment, setSelectedSegment] = useState<Segment | null>(null);
 
-  const handleCreateSegment = (segmentData: Omit<Segment, 'id' | 'contactCount' | 'created_at' | 'updated_at'>) => {
-    const matchingContacts = getMatchingContacts(segmentData.filters);
-    const newSegment: Segment = {
-      ...segmentData,
-      id: Date.now().toString(),
-      contactCount: matchingContacts.length,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
-    };
-    
-    setSegments([...segments, newSegment]);
-    onSegmentCreated(newSegment);
-    setShowCreateForm(false);
-  };
+  useEffect(() => {
+    loadData();
+  }, [contacts]);
 
-  const handleUpdateSegment = (segmentData: Omit<Segment, 'id' | 'contactCount' | 'created_at' | 'updated_at'>) => {
-    if (!editingSegment) return;
-    
-    const matchingContacts = getMatchingContacts(segmentData.filters);
-    const updatedSegment: Segment = {
-      ...editingSegment,
-      ...segmentData,
-      contactCount: matchingContacts.length,
-      updated_at: new Date().toISOString()
-    };
-    
-    setSegments(segments.map(s => s.id === editingSegment.id ? updatedSegment : s));
-    setEditingSegment(null);
-  };
+  const loadData = async () => {
+    if (contacts.length === 0) {
+      setLoading(false);
+      return;
+    }
 
-  const handleDeleteSegment = (segmentId: string) => {
-    if (confirm('Are you sure you want to delete this segment?')) {
-      setSegments(segments.filter(s => s.id !== segmentId));
+    try {
+      const serviceId = contacts[0].service_id;
+      const [fetchedSegments, fetchedPreferences] = await Promise.all([
+        segmentService.getSegments(serviceId),
+        contactPreferenceService.getPreferencesForContacts(contacts.map(c => c.id))
+      ]);
+
+      // Calculate contact counts for segments
+      const segmentsWithCounts = fetchedSegments.map(segment => ({
+        ...segment,
+        contactCount: getMatchingContactsCount(segment.filters, contacts, fetchedPreferences)
+      }));
+
+      setSegments(segmentsWithCounts);
+      setContactPreferences(fetchedPreferences);
+    } catch (error) {
+      console.error('Error loading segment data:', error);
+    } finally {
+      setLoading(false);
     }
   };
 
-  const getMatchingContacts = (filters: SegmentFilter[]): Contact[] => {
-    return contacts.filter(contact => {
-      return filters.every((filter, index) => {
-        const matches = checkFilterMatch(contact, filter);
-        
-        if (index === 0) return matches;
-        
-        const logic = filters[index - 1]?.logic || 'AND';
-        if (logic === 'OR') {
-          // For OR logic, we need to check if ANY previous filter matched
-          return filters.slice(0, index + 1).some(f => checkFilterMatch(contact, f));
-        }
-        
-        return matches;
+  const getMatchingContactsCount = (filters: SegmentFilter[], contactsList: Contact[], preferences: Record<string, ContactPreferences>) => {
+    return segmentService.getMatchingContacts(filters, contactsList, preferences).length;
+  };
+
+  const handleCreateSegment = async (segmentData: Omit<Segment, 'id' | 'contactCount' | 'created_at' | 'updated_at' | 'service_id'>) => {
+    try {
+      const newSegment = await segmentService.createSegment({
+        ...segmentData,
+        service_id: contacts[0].service_id
       });
-    });
+
+      const segmentWithCount = {
+        ...newSegment,
+        contactCount: getMatchingContactsCount(newSegment.filters, contacts, contactPreferences)
+      };
+
+      setSegments([segmentWithCount, ...segments]);
+      onSegmentCreated(newSegment);
+      setShowCreateForm(false);
+    } catch (error) {
+      console.error('Error creating segment:', error);
+      alert('Failed to create segment');
+    }
   };
 
-  const checkFilterMatch = (contact: Contact, filter: SegmentFilter): boolean => {
-    let fieldValue = '';
-    
-    switch (filter.field) {
-      case 'tags':
-        fieldValue = contact.tags.join(' ').toLowerCase();
-        break;
-      case 'address':
-        fieldValue = contact.address.toLowerCase();
-        break;
-      case 'email':
-        fieldValue = contact.email.toLowerCase();
-        break;
-      case 'phone':
-        fieldValue = contact.phone.toLowerCase();
-        break;
-      case 'name':
-        fieldValue = contact.name.toLowerCase();
-        break;
+  const handleUpdateSegment = async (segmentData: Omit<Segment, 'id' | 'contactCount' | 'created_at' | 'updated_at' | 'service_id'>) => {
+    if (!editingSegment) return;
+
+    try {
+      const updatedSegment = await segmentService.updateSegment(editingSegment.id, segmentData);
+
+      const segmentWithCount = {
+        ...updatedSegment,
+        contactCount: getMatchingContactsCount(updatedSegment.filters, contacts, contactPreferences)
+      };
+
+      setSegments(segments.map(s => s.id === editingSegment.id ? segmentWithCount : s));
+      setEditingSegment(null);
+      if (selectedSegment?.id === editingSegment.id) {
+        setSelectedSegment(segmentWithCount);
+      }
+    } catch (error) {
+      console.error('Error updating segment:', error);
+      alert('Failed to update segment');
     }
-    
-    const searchValue = filter.value.toLowerCase();
-    
-    switch (filter.operator) {
-      case 'contains':
-        return fieldValue.includes(searchValue);
-      case 'equals':
-        return fieldValue === searchValue;
-      case 'starts_with':
-        return fieldValue.startsWith(searchValue);
-      case 'ends_with':
-        return fieldValue.endsWith(searchValue);
-      case 'not_contains':
-        return !fieldValue.includes(searchValue);
-      default:
-        return false;
+  };
+
+  const handleDeleteSegment = async (segmentId: string) => {
+    if (confirm('Are you sure you want to delete this segment?')) {
+      try {
+        await segmentService.deleteSegment(segmentId);
+        setSegments(segments.filter(s => s.id !== segmentId));
+        if (selectedSegment?.id === segmentId) {
+          setSelectedSegment(null);
+        }
+      } catch (error) {
+        console.error('Error deleting segment:', error);
+        alert('Failed to delete segment');
+      }
     }
+  };
+
+  const getMatchingContacts = (filters: SegmentFilter[], contactsList: Contact[] = contacts, preferences: Record<string, ContactPreferences> = contactPreferences): Contact[] => {
+    return segmentService.getMatchingContacts(filters, contactsList, preferences);
   };
 
   const formatDate = (dateString: string) => {
@@ -173,6 +125,17 @@ export function SegmentManager({ contacts, onClose, onSegmentCreated }: SegmentM
       year: 'numeric'
     });
   };
+
+  if (loading) {
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div className="bg-white rounded-lg shadow-xl p-8 flex flex-col items-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div>
+          <p className="text-gray-600">Loading segments...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -210,14 +173,13 @@ export function SegmentManager({ contacts, onClose, onSegmentCreated }: SegmentM
             <div className="p-4 border-b border-gray-200">
               <h3 className="font-semibold text-gray-900">Your Segments ({segments.length})</h3>
             </div>
-            
+
             <div className="flex-1 overflow-y-auto">
               {segments.map((segment) => (
                 <div
                   key={segment.id}
-                  className={`p-4 border-b border-gray-200 cursor-pointer transition-colors ${
-                    selectedSegment?.id === segment.id ? 'bg-blue-50 border-blue-200' : 'hover:bg-gray-50'
-                  }`}
+                  className={`p-4 border-b border-gray-200 cursor-pointer transition-colors ${selectedSegment?.id === segment.id ? 'bg-blue-50 border-blue-200' : 'hover:bg-gray-50'
+                    }`}
                   onClick={() => setSelectedSegment(segment)}
                 >
                   <div className="flex items-start justify-between">
@@ -261,7 +223,7 @@ export function SegmentManager({ contacts, onClose, onSegmentCreated }: SegmentM
                   </div>
                 </div>
               ))}
-              
+
               {segments.length === 0 && (
                 <div className="p-8 text-center">
                   <Filter size={48} className="mx-auto text-gray-300 mb-4" />
@@ -279,7 +241,7 @@ export function SegmentManager({ contacts, onClose, onSegmentCreated }: SegmentM
                 <div className="p-4 border-b border-gray-200">
                   <h3 className="font-semibold text-gray-900 mb-2">{selectedSegment.name}</h3>
                   <p className="text-sm text-gray-600 mb-3">{selectedSegment.description}</p>
-                  
+
                   <div className="space-y-2">
                     <h4 className="text-sm font-medium text-gray-900">Filters:</h4>
                     {selectedSegment.filters.map((filter, index) => (
@@ -290,7 +252,7 @@ export function SegmentManager({ contacts, onClose, onSegmentCreated }: SegmentM
                           </span>
                         )}
                         <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs font-medium capitalize">
-                          {filter.field}
+                          {filter.field.replace('_', ' ')}
                         </span>
                         <span className="text-gray-500 text-xs">{filter.operator.replace('_', ' ')}</span>
                         <span className="bg-gray-100 px-2 py-1 rounded text-xs font-medium">
@@ -300,23 +262,23 @@ export function SegmentManager({ contacts, onClose, onSegmentCreated }: SegmentM
                     ))}
                   </div>
                 </div>
-                
+
                 <div className="flex-1 overflow-y-auto p-4">
                   <h4 className="font-semibold text-gray-900 mb-3">
                     Matching Contacts ({selectedSegment.contactCount})
                   </h4>
-                  
+
                   <div className="space-y-3">
                     {getMatchingContacts(selectedSegment.filters).map((contact, index) => (
                       <div key={index} className="bg-gray-50 rounded-lg p-3">
                         <div className="flex items-start gap-3">
                           <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0">
                             <span className="text-blue-600 font-semibold text-sm">
-                              {contact.name.split(' ').map(n => n[0]).join('')}
+                              {contact.first_name[0]}{contact.last_name[0]}
                             </span>
                           </div>
                           <div className="flex-1 min-w-0">
-                            <h5 className="font-medium text-gray-900 text-sm">{contact.title} {contact.name}</h5>
+                            <h5 className="font-medium text-gray-900 text-sm">{contact.title} {contact.first_name} {contact.last_name}</h5>
                             <div className="space-y-1 mt-1">
                               <div className="flex items-center gap-2 text-xs text-gray-600">
                                 <Mail size={12} />
@@ -328,16 +290,29 @@ export function SegmentManager({ contacts, onClose, onSegmentCreated }: SegmentM
                               </div>
                               <div className="flex items-center gap-2 text-xs text-gray-600">
                                 <MapPin size={12} />
-                                <span className="truncate">{contact.address}</span>
+                                <span className="truncate">{contact.address_line_1}, {contact.postcode}</span>
                               </div>
-                              {contact.tags.length > 0 && (
+                              {(contact.tags || []).length > 0 && (
                                 <div className="flex flex-wrap gap-1 mt-2">
-                                  {contact.tags.map((tag, tagIndex) => (
+                                  {(contact.tags || []).map((tag, tagIndex) => (
                                     <span key={tagIndex} className="inline-flex items-center gap-1 text-xs bg-blue-50 text-blue-700 px-2 py-1 rounded">
                                       <Tag size={10} />
                                       {tag}
                                     </span>
                                   ))}
+                                </div>
+                              )}
+                              {contactPreferences[contact.id] && (
+                                <div className="flex gap-2 mt-2 pt-2 border-t border-gray-200">
+                                  <span className={`text-[10px] px-1.5 py-0.5 rounded ${contactPreferences[contact.id].email ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                                    Email: {contactPreferences[contact.id].email ? 'Yes' : 'No'}
+                                  </span>
+                                  <span className={`text-[10px] px-1.5 py-0.5 rounded ${contactPreferences[contact.id].sms ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                                    SMS: {contactPreferences[contact.id].sms ? 'Yes' : 'No'}
+                                  </span>
+                                  <span className={`text-[10px] px-1.5 py-0.5 rounded ${contactPreferences[contact.id].letter ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                                    Letter: {contactPreferences[contact.id].letter ? 'Yes' : 'No'}
+                                  </span>
                                 </div>
                               )}
                             </div>
@@ -365,6 +340,7 @@ export function SegmentManager({ contacts, onClose, onSegmentCreated }: SegmentM
           <SegmentForm
             segment={editingSegment}
             contacts={contacts}
+            preferences={contactPreferences}
             onSave={editingSegment ? handleUpdateSegment : handleCreateSegment}
             onCancel={() => {
               setShowCreateForm(false);
@@ -377,10 +353,11 @@ export function SegmentManager({ contacts, onClose, onSegmentCreated }: SegmentM
   );
 }
 
-function SegmentForm({ segment, contacts, onSave, onCancel }: {
+function SegmentForm({ segment, contacts, preferences, onSave, onCancel }: {
   segment?: Segment | null;
   contacts: Contact[];
-  onSave: (segmentData: Omit<Segment, 'id' | 'contactCount' | 'created_at' | 'updated_at'>) => void;
+  preferences: Record<string, ContactPreferences>;
+  onSave: (segmentData: Omit<Segment, 'id' | 'contactCount' | 'created_at' | 'updated_at' | 'service_id'>) => void;
   onCancel: () => void;
 }) {
   const [name, setName] = useState(segment?.name || '');
@@ -394,7 +371,10 @@ function SegmentForm({ segment, contacts, onSave, onCancel }: {
     { value: 'address', label: 'Address', icon: MapPin },
     { value: 'email', label: 'Email', icon: Mail },
     { value: 'phone', label: 'Phone', icon: Phone },
-    { value: 'name', label: 'Name', icon: Users }
+    { value: 'name', label: 'Name', icon: Users },
+    { value: 'email_preference', label: 'Email Preference', icon: CheckSquare },
+    { value: 'sms_preference', label: 'SMS Preference', icon: CheckSquare },
+    { value: 'letter_preference', label: 'Letter Preference', icon: CheckSquare }
   ];
 
   const operatorOptions = [
@@ -414,7 +394,7 @@ function SegmentForm({ segment, contacts, onSave, onCancel }: {
   };
 
   const updateFilter = (index: number, updates: Partial<SegmentFilter>) => {
-    setFilters(filters.map((filter, i) => 
+    setFilters(filters.map((filter, i) =>
       i === index ? { ...filter, ...updates } : filter
     ));
   };
@@ -422,68 +402,18 @@ function SegmentForm({ segment, contacts, onSave, onCancel }: {
   const getPreviewCount = () => {
     const validFilters = filters.filter(f => f.value.trim());
     if (validFilters.length === 0) return 0;
-    
-    return contacts.filter(contact => {
-      return validFilters.every((filter, index) => {
-        const matches = checkFilterMatch(contact, filter);
-        
-        if (index === 0) return matches;
-        
-        const logic = validFilters[index - 1]?.logic || 'AND';
-        if (logic === 'OR') {
-          return validFilters.slice(0, index + 1).some(f => checkFilterMatch(contact, f));
-        }
-        
-        return matches;
-      });
-    }).length;
+
+    return segmentService.getMatchingContacts(validFilters, contacts, preferences).length;
   };
 
-  const checkFilterMatch = (contact: any, filter: SegmentFilter): boolean => {
-    let fieldValue = '';
-    
-    switch (filter.field) {
-      case 'tags':
-        fieldValue = contact.tags.join(' ').toLowerCase();
-        break;
-      case 'address':
-        fieldValue = contact.address.toLowerCase();
-        break;
-      case 'email':
-        fieldValue = contact.email.toLowerCase();
-        break;
-      case 'phone':
-        fieldValue = contact.phone.toLowerCase();
-        break;
-      case 'name':
-        fieldValue = contact.name.toLowerCase();
-        break;
-    }
-    
-    const searchValue = filter.value.toLowerCase();
-    
-    switch (filter.operator) {
-      case 'contains':
-        return fieldValue.includes(searchValue);
-      case 'equals':
-        return fieldValue === searchValue;
-      case 'starts_with':
-        return fieldValue.startsWith(searchValue);
-      case 'ends_with':
-        return fieldValue.endsWith(searchValue);
-      case 'not_contains':
-        return !fieldValue.includes(searchValue);
-      default:
-        return false;
-    }
-  };
+
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const validFilters = filters.filter(f => f.value.trim());
-    
+
     if (!name.trim() || validFilters.length === 0) return;
-    
+
     onSave({
       name: name.trim(),
       description: description.trim(),
@@ -573,7 +503,7 @@ function SegmentForm({ segment, contacts, onSave, onCancel }: {
                       <label className="block text-xs font-medium text-gray-700 mb-2">Field</label>
                       <select
                         value={filter.field}
-                        onChange={(e) => updateFilter(index, { field: e.target.value as SegmentFilter['field'] })}
+                        onChange={(e) => updateFilter(index, { field: e.target.value as SegmentFilter['field'], value: '' })}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
                       >
                         {fieldOptions.map(option => (
@@ -584,42 +514,72 @@ function SegmentForm({ segment, contacts, onSave, onCancel }: {
                       </select>
                     </div>
 
-                    <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-2">Operator</label>
-                      <select
-                        value={filter.operator}
-                        onChange={(e) => updateFilter(index, { operator: e.target.value as SegmentFilter['operator'] })}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                      >
-                        {operatorOptions.map(option => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-2">Value</label>
-                      <div className="flex gap-2">
-                        <input
-                          type="text"
-                          value={filter.value}
-                          onChange={(e) => updateFilter(index, { value: e.target.value })}
-                          className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                          placeholder="Enter value..."
-                        />
-                        {filters.length > 1 && (
-                          <button
-                            type="button"
-                            onClick={() => removeFilter(index)}
-                            className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                    {['email_preference', 'sms_preference', 'letter_preference'].includes(filter.field) ? (
+                      <>
+                        <div className="col-span-2">
+                          <label className="block text-xs font-medium text-gray-700 mb-2">Value</label>
+                          <div className="flex gap-2">
+                            <select
+                              value={filter.value}
+                              onChange={(e) => updateFilter(index, { value: e.target.value })}
+                              className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                            >
+                              <option value="">Select...</option>
+                              <option value="true">Opted In (True)</option>
+                              <option value="false">Opted Out (False)</option>
+                            </select>
+                            {filters.length > 1 && (
+                              <button
+                                type="button"
+                                onClick={() => removeFilter(index)}
+                                className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-700 mb-2">Operator</label>
+                          <select
+                            value={filter.operator}
+                            onChange={(e) => updateFilter(index, { operator: e.target.value as SegmentFilter['operator'] })}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
                           >
-                            <Trash2 size={16} />
-                          </button>
-                        )}
-                      </div>
-                    </div>
+                            {operatorOptions.map(option => (
+                              <option key={option.value} value={option.value}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-medium text-gray-700 mb-2">Value</label>
+                          <div className="flex gap-2">
+                            <input
+                              type="text"
+                              value={filter.value}
+                              onChange={(e) => updateFilter(index, { value: e.target.value })}
+                              className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                              placeholder="Enter value..."
+                            />
+                            {filters.length > 1 && (
+                              <button
+                                type="button"
+                                onClick={() => removeFilter(index)}
+                                className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </>
+                    )}
                   </div>
                 </div>
               ))}

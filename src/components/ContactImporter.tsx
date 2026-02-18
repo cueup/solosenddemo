@@ -3,15 +3,20 @@ import { X, Upload, Download, AlertCircle, CheckCircle2, FileText, Users } from 
 
 interface Contact {
   title: string;
-  firstName: string;
-  lastName: string;
+  first_name: string;
+  last_name: string;
   email: string;
   phone: string;
-  address1: string;
-  address2?: string;
-  city: string;
+  address_line_1: string;
+  address_line_2?: string;
+  address_line_3?: string;
+  address_line_4?: string;
+  address_line_5?: string;
+  address_line_6?: string;
+  address_line_7?: string;
   postcode: string;
   tags: string[];
+  metadata?: Record<string, any>;
 }
 
 interface ContactImporterProps {
@@ -27,10 +32,10 @@ export function ContactImporter({ onClose, onImport }: ContactImporterProps) {
   const [isProcessing, setIsProcessing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const csvTemplate = `title,firstName,lastName,email,phone,address1,address2,city,postcode,tags
-Mr,John,Smith,john.smith@example.com,+44 20 7123 4567,123 High Street,Apartment 4B,London,SW1A 1AA,"VIP,Government"
-Mrs,Sarah,Johnson,sarah.johnson@example.com,+44 20 7234 5678,456 Park Road,,Manchester,M1 1AA,"Citizens"
-Dr,Michael,Brown,michael.brown@example.com,+44 20 7345 6789,789 Queen Avenue,Suite 12,Birmingham,B1 1AA,"Business,VIP"`;
+  const csvTemplate = `title,first_name,last_name,email,phone,address_line_1,address_line_2,address_line_3,address_line_4,address_line_5,address_line_6,address_line_7,postcode,tags,metadata
+Mr,John,Smith,john.smith@example.com,+44 20 7123 4567,123 High Street,Apartment 4B,,,,,,SW1A 1AA,"VIP,Government","{""contract_type"": ""standard"", ""marketing_opt_in"": true}"
+Mrs,Sarah,Johnson,sarah.johnson@example.com,+44 20 7234 5678,456 Park Road,,,,,,,SW1A 1AA,"Citizens","{""contract_type"": ""premium""}"
+Dr,Michael,Brown,michael.brown@example.com,+44 20 7345 6789,789 Queen Avenue,Suite 12,,,,,,B1 1AA,"Business,VIP","{}"`;
 
   const downloadTemplate = () => {
     const blob = new Blob([csvTemplate], { type: 'text/csv' });
@@ -94,7 +99,7 @@ Dr,Michael,Brown,michael.brown@example.com,+44 20 7345 6789,789 Queen Avenue,Sui
       const contacts = parseCSV(text);
       setParsedContacts(contacts);
     } catch (error) {
-      setParseError('Failed to read the CSV file. Please check the file format.');
+      setParseError(error instanceof Error ? error.message : 'Failed to read the CSV file. Please check the file format.');
     } finally {
       setIsProcessing(false);
     }
@@ -106,14 +111,14 @@ Dr,Michael,Brown,michael.brown@example.com,+44 20 7345 6789,789 Queen Avenue,Sui
       throw new Error('CSV file must contain at least a header row and one data row');
     }
 
-    const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
-    const requiredHeaders = ['title', 'firstName', 'lastName', 'email', 'phone', 'address1', 'city', 'postcode'];
-    
+    const headers = parseCSVLine(lines[0]).map(h => h.trim().replace(/"/g, ''));
+    const requiredHeaders = ['title', 'first_name', 'last_name', 'email', 'phone', 'address_line_1', 'postcode'];
+
     // Check for required headers
-    const missingHeaders = requiredHeaders.filter(header => 
+    const missingHeaders = requiredHeaders.filter(header =>
       !headers.some(h => h.toLowerCase() === header.toLowerCase())
     );
-    
+
     if (missingHeaders.length > 0) {
       throw new Error(`Missing required columns: ${missingHeaders.join(', ')}`);
     }
@@ -122,10 +127,13 @@ Dr,Michael,Brown,michael.brown@example.com,+44 20 7345 6789,789 Queen Avenue,Sui
     const errors: string[] = [];
 
     for (let i = 1; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (!line) continue;
+
       try {
-        const values = parseCSVLine(lines[i]);
+        const values = parseCSVLine(line);
         if (values.length !== headers.length) {
-          errors.push(`Row ${i + 1}: Column count mismatch`);
+          errors.push(`Row ${i + 1}: Column count mismatch (expected ${headers.length}, got ${values.length})`);
           continue;
         }
 
@@ -135,9 +143,9 @@ Dr,Michael,Brown,michael.brown@example.com,+44 20 7345 6789,789 Queen Avenue,Sui
         });
 
         // Validate required fields
-        const requiredFields = ['title', 'firstName', 'lastName', 'email', 'phone', 'address1', 'city', 'postcode'];
+        const requiredFields = ['title', 'first_name', 'last_name', 'email', 'phone', 'address_line_1', 'postcode'];
         const missingFields = requiredFields.filter(field => !contact[field]);
-        
+
         if (missingFields.length > 0) {
           errors.push(`Row ${i + 1}: Missing required fields: ${missingFields.join(', ')}`);
           continue;
@@ -156,20 +164,36 @@ Dr,Michael,Brown,michael.brown@example.com,+44 20 7345 6789,789 Queen Avenue,Sui
           tags = contact.tags.split(',').map((tag: string) => tag.trim()).filter((tag: string) => tag);
         }
 
+        // Parse metadata
+        let metadata = undefined;
+        if (contact.metadata) {
+          try {
+            metadata = JSON.parse(contact.metadata);
+          } catch (e) {
+            errors.push(`Row ${i + 1}: Invalid JSON in metadata field`);
+            continue;
+          }
+        }
+
         contacts.push({
           title: contact.title,
-          firstName: contact.firstname || contact.firstName,
-          lastName: contact.lastname || contact.lastName,
+          first_name: contact.firstname || contact.first_name,
+          last_name: contact.lastname || contact.last_name,
           email: contact.email,
           phone: contact.phone,
-          address1: contact.address1,
-          address2: contact.address2 || '',
-          city: contact.city,
+          address_line_1: contact.address_line_1,
+          address_line_2: contact.address_line_2 || '',
+          address_line_3: contact.address_line_3 || '',
+          address_line_4: contact.address_line_4 || '',
+          address_line_5: contact.address_line_5 || '',
+          address_line_6: contact.address_line_6 || '',
+          address_line_7: contact.address_line_7 || '',
           postcode: contact.postcode,
-          tags
+          tags,
+          metadata
         });
       } catch (error) {
-        errors.push(`Row ${i + 1}: Failed to parse row`);
+        errors.push(`Row ${i + 1}: ${error instanceof Error ? error.message : 'Failed to parse row'}`);
       }
     }
 
@@ -188,10 +212,10 @@ Dr,Michael,Brown,michael.brown@example.com,+44 20 7345 6789,789 Queen Avenue,Sui
     const result: string[] = [];
     let current = '';
     let inQuotes = false;
-    
+
     for (let i = 0; i < line.length; i++) {
       const char = line[i];
-      
+
       if (char === '"') {
         if (inQuotes && line[i + 1] === '"') {
           current += '"';
@@ -206,7 +230,7 @@ Dr,Michael,Brown,michael.brown@example.com,+44 20 7345 6789,789 Queen Avenue,Sui
         current += char;
       }
     }
-    
+
     result.push(current);
     return result;
   };
@@ -265,13 +289,12 @@ Dr,Michael,Brown,michael.brown@example.com,+44 20 7345 6789,789 Queen Avenue,Sui
             <label className="block text-sm font-semibold text-gray-900 mb-3">
               Upload CSV File
             </label>
-            
+
             <div
-              className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
-                dragActive
-                  ? 'border-blue-500 bg-blue-50'
-                  : 'border-gray-300 hover:border-blue-400 hover:bg-gray-50'
-              }`}
+              className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${dragActive
+                ? 'border-blue-500 bg-blue-50'
+                : 'border-gray-300 hover:border-blue-400 hover:bg-gray-50'
+                }`}
               onDragEnter={handleDrag}
               onDragLeave={handleDrag}
               onDragOver={handleDrag}
@@ -284,9 +307,9 @@ Dr,Michael,Brown,michael.brown@example.com,+44 20 7345 6789,789 Queen Avenue,Sui
                 onChange={handleFileInput}
                 className="hidden"
               />
-              
+
               <Upload size={48} className="mx-auto text-gray-400 mb-4" />
-              
+
               {file ? (
                 <div className="space-y-2">
                   <p className="text-lg font-medium text-gray-900">{file.name}</p>
@@ -366,7 +389,7 @@ Dr,Michael,Brown,michael.brown@example.com,+44 20 7345 6789,789 Queen Avenue,Sui
                       <div key={index} className="px-4 py-3">
                         <div className="grid grid-cols-4 gap-4 text-sm">
                           <span className="font-medium text-gray-900">
-                            {contact.title} {contact.firstName} {contact.lastName}
+                            {contact.title} {contact.first_name} {contact.last_name}
                           </span>
                           <span className="text-gray-600 truncate">{contact.email}</span>
                           <span className="text-gray-600">{contact.phone}</span>
@@ -405,9 +428,10 @@ Dr,Michael,Brown,michael.brown@example.com,+44 20 7345 6789,789 Queen Avenue,Sui
           <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
             <h4 className="font-semibold text-gray-900 mb-2">CSV Format Requirements</h4>
             <div className="text-sm text-gray-700 space-y-1">
-              <p><strong>Required columns:</strong> title, firstName, lastName, email, phone, address1, city, postcode</p>
-              <p><strong>Optional columns:</strong> address2, tags</p>
+              <p><strong>Required columns:</strong> title, first_name, last_name, email, phone, address_line_1, postcode</p>
+              <p><strong>Optional columns:</strong> address_line_2(upto 7), tags, metadata</p>
               <p><strong>Tags format:</strong> Separate multiple tags with commas (e.g., "VIP,Government")</p>
+              <p><strong>Metadata format:</strong> Valid JSON string (e.g., "{'{"key": "value"}'}")</p>
               <p><strong>File encoding:</strong> UTF-8 recommended</p>
             </div>
           </div>

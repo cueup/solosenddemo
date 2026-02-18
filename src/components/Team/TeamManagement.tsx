@@ -1,67 +1,43 @@
 import { useState, useEffect } from 'react'
-import { Plus, Mail, Shield, Clock, MoreVertical, UserCheck, UserX, Edit3, Trash2 } from 'lucide-react'
-import { supabase, TeamMember } from '../../lib/supabase'
-import { useAuth } from '../../contexts/AuthContext'
+import { Plus, Mail, Shield, Clock, MoreVertical, Trash2 } from 'lucide-react'
+import { supabase } from '../../lib/supabase'
+import { useService } from '../../contexts/ServiceContext'
+import { inviteService } from '../../services/inviteService'
 import { InviteTeamMember } from './InviteTeamMember'
 
 export function TeamManagement() {
-  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([])
+  // We'll treat service_members as "Profile" like objects for UI compatibility
+  const [teamMembers, setTeamMembers] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [showInviteModal, setShowInviteModal] = useState(false)
-  const [selectedMember, setSelectedMember] = useState<TeamMember | null>(null)
-  const { user } = useAuth()
+  const [selectedMember, setSelectedMember] = useState<any | null>(null)
+  const { currentService } = useService()
 
   useEffect(() => {
-    fetchTeamMembers()
-  }, [])
+    if (currentService) {
+      fetchTeamMembers()
+    } else {
+      setLoading(false)
+    }
+  }, [currentService])
 
   const fetchTeamMembers = async () => {
+    if (!currentService) return
+
     try {
-      // This would typically fetch from a team_members table
-      // For now, we'll use mock data that would come from Supabase
-      const mockTeamMembers: TeamMember[] = [
-        {
-          id: '1',
-          email: 'john.doe@example.gov.uk',
-          full_name: 'John Doe',
-          role: 'admin',
-          status: 'active',
-          invited_by: user?.id || '',
-          invited_at: '2024-10-15T10:00:00Z',
-          last_sign_in: '2024-10-25T09:30:00Z'
-        },
-        {
-          id: '2',
-          email: 'sarah.smith@example.gov.uk',
-          full_name: 'Sarah Smith',
-          role: 'editor',
-          status: 'active',
-          invited_by: user?.id || '',
-          invited_at: '2024-10-18T14:30:00Z',
-          last_sign_in: '2024-10-24T16:45:00Z'
-        },
-        {
-          id: '3',
-          email: 'michael.johnson@example.gov.uk',
-          full_name: 'Michael Johnson',
-          role: 'viewer',
-          status: 'active',
-          invited_by: user?.id || '',
-          invited_at: '2024-10-20T11:15:00Z',
-          last_sign_in: '2024-10-23T08:20:00Z'
-        },
-        {
-          id: '4',
-          email: 'emily.brown@example.gov.uk',
-          full_name: 'Emily Brown',
-          role: 'editor',
-          status: 'pending',
-          invited_by: user?.id || '',
-          invited_at: '2024-10-22T16:00:00Z'
-        }
-      ]
-      
-      setTeamMembers(mockTeamMembers)
+      // Fetch service members.
+      // We now have full_name on service_members for pending invites.
+      // For active users, we could join with profiles, but for now we have it on the table.
+
+      const { data, error } = await supabase
+        .from('service_members')
+        .select('*')
+        .eq('service_id', currentService.id)
+        .order('created_at', { ascending: false })
+
+      if (error) throw error
+
+      setTeamMembers(data || [])
     } catch (error) {
       console.error('Error fetching team members:', error)
     } finally {
@@ -69,58 +45,56 @@ export function TeamManagement() {
     }
   }
 
-  const handleInviteMember = async (memberData: { email: string; role: 'admin' | 'editor' | 'viewer'; full_name: string }) => {
-    try {
-      // In a real implementation, this would:
-      // 1. Insert into team_members table
-      // 2. Send invitation email via Supabase Auth
-      // 3. Update the local state
-      
-      const newMember: TeamMember = {
-        id: Date.now().toString(),
-        email: memberData.email,
-        full_name: memberData.full_name,
-        role: memberData.role,
-        status: 'pending',
-        invited_by: user?.id || '',
-        invited_at: new Date().toISOString()
-      }
-
-      setTeamMembers(prev => [...prev, newMember])
-      setShowInviteModal(false)
-    } catch (error) {
-      console.error('Error inviting team member:', error)
-    }
+  const handleInviteMember = async () => {
+    await fetchTeamMembers()
+    setShowInviteModal(false)
   }
 
   const handleUpdateRole = async (memberId: string, newRole: 'admin' | 'editor' | 'viewer') => {
     try {
-      setTeamMembers(prev => 
-        prev.map(member => 
+      const { error } = await supabase
+        .from('service_members')
+        .update({ role: newRole })
+        .eq('id', memberId)
+
+      if (error) throw error
+
+      setTeamMembers(prev =>
+        prev.map(member =>
           member.id === memberId ? { ...member, role: newRole } : member
         )
       )
     } catch (error) {
       console.error('Error updating role:', error)
+      alert('Failed to update role')
     }
   }
 
   const handleRemoveMember = async (memberId: string) => {
-    if (confirm('Are you sure you want to remove this team member?')) {
+    if (confirm('Are you sure you want to remove this member?')) {
       try {
+        const { error } = await supabase
+          .from('service_members')
+          .delete()
+          .eq('id', memberId)
+
+        if (error) throw error
+
         setTeamMembers(prev => prev.filter(member => member.id !== memberId))
       } catch (error) {
-        console.error('Error removing team member:', error)
+        console.error('Error removing member:', error)
+        alert('Failed to remove member')
       }
     }
   }
 
   const handleResendInvite = async (memberId: string) => {
     try {
-      // In a real implementation, this would resend the invitation email
-      console.log('Resending invite for member:', memberId)
+      await inviteService.resendServiceInvite(memberId)
+      alert('Invitation resent successfully')
     } catch (error) {
       console.error('Error resending invite:', error)
+      alert('Failed to resend invitation')
     }
   }
 
@@ -166,14 +140,14 @@ export function TeamManagement() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-3xl font-bold text-gray-900 mb-2">Team Members</h2>
-          <p className="text-gray-600">Manage your team's access and permissions</p>
+          <p className="text-gray-600">Manage members for <strong>{currentService?.name}</strong></p>
         </div>
-        <button 
+        <button
           onClick={() => setShowInviteModal(true)}
           className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2 font-semibold"
         >
           <Plus size={20} />
-          Invite Team Member
+          Invite Member
         </button>
       </div>
 
@@ -206,9 +180,9 @@ export function TeamManagement() {
       {/* Team Members List */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-200">
         <div className="p-4 border-b border-gray-200">
-          <h3 className="font-semibold text-gray-900">Team Members</h3>
+          <h3 className="font-semibold text-gray-900">Service Members</h3>
         </div>
-        
+
         <div className="divide-y divide-gray-200">
           {teamMembers.map((member) => (
             <div key={member.id} className="p-4 hover:bg-gray-50 transition-colors">
@@ -216,30 +190,25 @@ export function TeamManagement() {
                 <div className="flex items-center gap-4">
                   <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
                     <span className="text-blue-600 font-semibold">
-                      {member.full_name.split(' ').map(n => n[0]).join('')}
+                      {(member.full_name || member.email || 'RM').split(' ').map((n: string) => n[0]).join('').toUpperCase().substring(0, 2)}
                     </span>
                   </div>
                   <div>
-                    <h4 className="font-semibold text-gray-900">{member.full_name}</h4>
+                    <h4 className="font-semibold text-gray-900">{member.full_name || member.email || 'Unknown User'}</h4>
                     <div className="flex items-center gap-2 text-sm text-gray-600">
                       <Mail size={14} />
-                      <span>{member.email}</span>
+                      <span>{member.email || 'No email available'}</span>
                     </div>
                     <div className="flex items-center gap-4 mt-2 text-xs text-gray-500">
                       <div className="flex items-center gap-1">
                         <Clock size={12} />
-                        <span>Invited {formatDate(member.invited_at)}</span>
+                        <span>Added {formatDate(member.created_at || new Date().toISOString())}</span>
+                        {/* Service members might not have invited_at or last_sign_in on the table immediately readable if standard select * */}
                       </div>
-                      {member.last_sign_in && (
-                        <div className="flex items-center gap-1">
-                          <UserCheck size={12} />
-                          <span>Last active {formatDate(member.last_sign_in)}</span>
-                        </div>
-                      )}
                     </div>
                   </div>
                 </div>
-                
+
                 <div className="flex items-center gap-3">
                   <span className={`text-sm font-medium px-3 py-1 rounded-full ${getRoleColor(member.role)}`}>
                     <Shield size={12} className="inline mr-1" />
@@ -248,7 +217,7 @@ export function TeamManagement() {
                   <span className={`text-sm font-medium px-3 py-1 rounded-full ${getStatusColor(member.status)}`}>
                     {member.status.charAt(0).toUpperCase() + member.status.slice(1)}
                   </span>
-                  
+
                   <div className="relative">
                     <button
                       onClick={() => setSelectedMember(selectedMember?.id === member.id ? null : member)}
@@ -256,7 +225,7 @@ export function TeamManagement() {
                     >
                       <MoreVertical size={16} className="text-gray-400" />
                     </button>
-                    
+
                     {selectedMember?.id === member.id && (
                       <div className="absolute right-0 top-full mt-1 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-10">
                         <div className="px-3 py-2 border-b border-gray-200">
@@ -269,15 +238,14 @@ export function TeamManagement() {
                               handleUpdateRole(member.id, role)
                               setSelectedMember(null)
                             }}
-                            className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-50 transition-colors ${
-                              member.role === role ? 'bg-blue-50 text-blue-700' : 'text-gray-700'
-                            }`}
+                            className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-50 transition-colors ${member.role === role ? 'bg-blue-50 text-blue-700' : 'text-gray-700'
+                              }`}
                           >
                             <Shield size={14} className="inline mr-2" />
                             {role.charAt(0).toUpperCase() + role.slice(1)}
                           </button>
                         ))}
-                        
+
                         <div className="border-t border-gray-200 mt-1">
                           {member.status === 'pending' && (
                             <button
@@ -354,10 +322,12 @@ export function TeamManagement() {
         </div>
       </div>
 
-      {showInviteModal && (
+      {showInviteModal && currentService && (
         <InviteTeamMember
           onClose={() => setShowInviteModal(false)}
           onInvite={handleInviteMember}
+          type="service"
+          serviceId={currentService.id}
         />
       )}
     </div>

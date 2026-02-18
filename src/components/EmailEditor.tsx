@@ -17,8 +17,8 @@ import {
   ChevronDown,
   Mail
 } from 'lucide-react';
-import { notifyService } from '../services/notifyService';
 import { useService } from '../contexts/ServiceContext';
+import { messageService } from '../services/messageService';
 interface Template {
   id: string;
   name: string;
@@ -32,65 +32,74 @@ interface Template {
   updated_at: string;
 }
 
-interface Contact {
-  id: string;
-  title: string;
-  first_name: string;
-  last_name: string;
-  email: string;
-  phone: string;
-  address_line_1: string;
-  address_line_2?: string;
-  address_line_3?: string;
-  address_line_4?: string;
-  address_line_5?: string;
-  address_line_6?: string;
-  postcode: string;
-  tags: string[];
-}
+import { Contact } from '../services/contactService';
 
-interface Segment {
-  id: string;
-  name: string;
-  description: string;
-  contact_count: number;
-}
+import { ContactPreferences } from '../services/contactPreferenceService';
+import { segmentService, Segment } from '../services/segmentService';
 
 interface EmailEditorProps {
   onClose: () => void;
   templates: Template[];
   contacts: Contact[];
   segments: Segment[];
+  contactPreferences?: Record<string, ContactPreferences>;
+  initialState?: {
+    id?: string;
+    subject?: string;
+    content?: string;
+    scheduled_at?: string;
+    recipient_mode?: 'contact' | 'segment' | 'manual';
+    template_id?: string;
+    segment_id?: string;
+    metadata?: any;
+  };
 }
 
-export function EmailEditor({ onClose, templates, contacts, segments }: EmailEditorProps) {
+export function EmailEditor({ onClose, templates, contacts, segments, contactPreferences = {}, initialState }: EmailEditorProps) {
   const { currentService, activeApiKey } = useService();
-  const [templateMode, setTemplateMode] = useState<'select' | 'manual'>('select');
-  const [selectedTemplate, setSelectedTemplate] = useState('');
-  const [subject, setSubject] = useState('');
-  const [content, setContent] = useState('');
-  const [scheduleMode, setScheduleMode] = useState<'now' | 'scheduled'>('now');
-  const [scheduleDate, setScheduleDate] = useState('');
-  const [scheduleTime, setScheduleTime] = useState('');
+  const [templateMode, setTemplateMode] = useState<'select' | 'manual'>(initialState?.template_id ? 'select' : (initialState?.metadata?.external_template_id ? 'manual' : 'select'));
+  const [subject, setSubject] = useState(initialState?.subject || '');
+  const [content, setContent] = useState(initialState?.content || '');
+  const [scheduleMode, setScheduleMode] = useState<'now' | 'scheduled'>(initialState?.scheduled_at ? 'scheduled' : 'now');
+  const [scheduleDate, setScheduleDate] = useState(initialState?.scheduled_at ? new Date(initialState.scheduled_at).toISOString().split('T')[0] : '');
+  const [scheduleTime, setScheduleTime] = useState(initialState?.scheduled_at ? new Date(initialState.scheduled_at).toTimeString().slice(0, 5) : '');
   const [isSending, setIsSending] = useState(false);
   const [sendError, setSendError] = useState('');
   const [isFullScreen, setIsFullScreen] = useState(false);
-  const [recipientMode, setRecipientMode] = useState<'contact' | 'segment' | 'manual'>('contact');
-  const [selectedContacts, setSelectedContacts] = useState<Contact[]>([]);
-  const [selectedSegment, setSelectedSegment] = useState<Segment | null>(null);
+  const [recipientMode, setRecipientMode] = useState<'contact' | 'segment' | 'manual'>(initialState?.recipient_mode || 'contact');
+  const [selectedContacts, setSelectedContacts] = useState<Contact[]>(() => {
+    if (initialState?.metadata?.selected_contacts && contacts) {
+      return contacts.filter(c => initialState.metadata.selected_contacts.includes(c.id));
+    }
+    return [];
+  });
+  const [selectedSegment, setSelectedSegment] = useState<Segment | null>(() => {
+    if (initialState?.segment_id && segments) {
+      return segments.find(s => s.id === initialState.segment_id) || null;
+    }
+    return null;
+  });
   const [contactSearch, setContactSearch] = useState('');
   const [showContactDropdown, setShowContactDropdown] = useState(false);
-  const [manualRecipients, setManualRecipients] = useState('');
-  const [templateId, setTemplateId] = useState('');
+  const [manualRecipients, setManualRecipients] = useState(initialState?.metadata?.manual_recipients || '');
+  const [templateId, setTemplateId] = useState(initialState?.metadata?.external_template_id || '');
+  const [selectedTemplate, setSelectedTemplate] = useState(initialState?.template_id || '');
+  const [draftId, setDraftId] = useState<string | undefined>(initialState?.id);
 
   const filteredContacts = (contacts || []).filter(contact => {
     const searchTerm = contactSearch.toLowerCase();
+    const firstName = (contact.first_name || '').toLowerCase();
+    const lastName = (contact.last_name || '').toLowerCase();
+    const email = (contact.email || '').toLowerCase();
+    const address = (contact.address_line_1 || '').toLowerCase();
+    const postcode = (contact.postcode || '').toLowerCase();
+
     return (
-      contact.first_name.toLowerCase().includes(searchTerm) ||
-      contact.last_name.toLowerCase().includes(searchTerm) ||
-      contact.email.toLowerCase().includes(searchTerm) ||
-      contact.address_line_1.toLowerCase().includes(searchTerm) ||
-      contact.postcode.toLowerCase().includes(searchTerm)
+      firstName.includes(searchTerm) ||
+      lastName.includes(searchTerm) ||
+      email.includes(searchTerm) ||
+      address.includes(searchTerm) ||
+      postcode.includes(searchTerm)
     );
   });
 
@@ -106,7 +115,7 @@ export function EmailEditor({ onClose, templates, contacts, segments }: EmailEdi
     setSelectedContacts(selectedContacts.filter(c => c.id !== contactId));
   };
 
-  const handleSegmentSelect = (segment: Segment) => {
+  const handleSegmentSelect = (segment: Segment | null) => {
     setSelectedSegment(segment);
   };
 
@@ -114,9 +123,9 @@ export function EmailEditor({ onClose, templates, contacts, segments }: EmailEdi
     if (recipientMode === 'contact') {
       return selectedContacts.length;
     } else if (recipientMode === 'segment') {
-      return selectedSegment?.contact_count || 0;
+      return selectedSegment?.contactCount || 0;
     } else {
-      return manualRecipients.split(',').filter(email => email.trim()).length;
+      return manualRecipients.split(',').filter((email: string) => email.trim()).length;
     }
   };
 
@@ -125,10 +134,8 @@ export function EmailEditor({ onClose, templates, contacts, segments }: EmailEdi
     if (template) {
       setSubject(template.subject || '');
       setContent(template.content);
-      if (template.notify_template_id) {
-        setTemplateId(template.notify_template_id);
-        setTemplateMode('manual');
-      }
+      // Removed automatic switch to manual mode. The internal ID (selectedTemplate) 
+      // will be used for DB reference, and template.notify_template_id for Notify API.
     }
   };
 
@@ -152,9 +159,11 @@ export function EmailEditor({ onClose, templates, contacts, segments }: EmailEdi
       return;
     }
 
-    const finalTemplateId = templateMode === 'select' ? selectedTemplate : templateId;
-    
-    if (!subject.trim() || !content.trim() || !finalTemplateId.trim()) {
+    const externalTemplateId = templateMode === 'select'
+      ? templates.find(t => t.id === selectedTemplate)?.notify_template_id
+      : templateId;
+
+    if (!subject.trim() || !content.trim() || !externalTemplateId?.trim()) {
       setSendError('Please fill in all required fields including template selection');
       return;
     }
@@ -178,25 +187,73 @@ export function EmailEditor({ onClose, templates, contacts, segments }: EmailEdi
     setSendError('');
 
     try {
-      let emailAddresses: string[] = [];
-      
+      if (!currentService) throw new Error('No current service');
+
+      // 1. Resolve recipients
+      let recipientData: { contact_id?: string, personalised_content: any }[] = [];
+
       if (recipientMode === 'contact') {
-        emailAddresses = selectedContacts.map(contact => contact.email);
+        recipientData = selectedContacts.map(contact => ({
+          contact_id: contact.id,
+          personalised_content: {
+            first_name: contact.first_name,
+            last_name: contact.last_name,
+            email: contact.email,
+            phone: contact.phone,
+            subject,
+            content
+          }
+        }));
+      } else if (recipientMode === 'segment' && selectedSegment) {
+        const segmentContacts = segmentService.getMatchingContacts(selectedSegment.filters, contacts, contactPreferences);
+        recipientData = segmentContacts.map(c => ({
+          contact_id: c.id,
+          personalised_content: {
+            first_name: c.first_name,
+            last_name: c.last_name,
+            email: c.email,
+            phone: c.phone,
+            subject,
+            content
+          }
+        }));
+
+        if (recipientData.length === 0) {
+          throw new Error('No valid email addresses found in this segment');
+        }
       } else if (recipientMode === 'manual') {
-        emailAddresses = manualRecipients.split(',').map(email => email.trim());
+        const manualEmails = manualRecipients.split(',').map((email: string) => email.trim()).filter((e: string) => e);
+        if (manualEmails.length > 0) {
+          setSendError('Manual entry is currently only supported via existing contacts for batch processing. Please import contacts first.');
+          setIsSending(false);
+          return;
+        }
       }
-      // For segment mode, you would typically fetch contacts from the segment
-      
-      // Use the active API key for sending
-      for (const emailAddress of emailAddresses) {
-        await notifyService.sendEmail(finalTemplateId, emailAddress, {
-          personalisation: {
-            subject: subject,
-            content: content
-          },
-          reference: `email-${currentService?.name}-${Date.now()}`
-        }, activeApiKey.key);
-      }
+
+      // 2. Create the message
+      const finalTemplateId = templateMode === 'select' ? selectedTemplate : undefined;
+      const message = await messageService.createMessage({
+        service_id: currentService.id,
+        message_type: 'email',
+        status: 'pending',
+        subject,
+        content_preview: content,
+        recipient_mode: recipientMode,
+        recipients_count: recipientData.length,
+        total_recipients: recipientData.length,
+        segment_id: selectedSegment?.id,
+        template_id: finalTemplateId,
+        metadata: {
+          external_template_id: templateMode === 'manual' ? templateId : undefined,
+          selected_contacts: selectedContacts.map(c => c.id)
+        }
+      });
+
+      // 3. Add recipients
+      await messageService.addRecipients(message.id, recipientData);
+
+      // 4. Trigger send
+      await messageService.sendNow(message.id);
 
       // Close the editor on successful send
       onClose();
@@ -209,7 +266,7 @@ export function EmailEditor({ onClose, templates, contacts, segments }: EmailEdi
 
   const handleSchedule = async () => {
     const finalTemplateId = templateMode === 'select' ? selectedTemplate : templateId;
-    
+
     if (!subject.trim() || !content.trim() || !finalTemplateId.trim() || !scheduleDate || !scheduleTime) {
       setSendError('Please fill in all required fields including template selection, schedule date and time');
       return;
@@ -231,15 +288,76 @@ export function EmailEditor({ onClose, templates, contacts, segments }: EmailEdi
     }
 
     // For now, just show success message as scheduling would require additional backend logic
-    alert('Email scheduled successfully!');
-    onClose();
+    const scheduledDateTime = `${scheduleDate}T${scheduleTime}:00Z`;
+
+    try {
+      setIsSending(true);
+      if (currentService) {
+        await messageService.createDraft(currentService.id, 'email', {
+          subject,
+          content_preview: content,
+          recipient_mode: recipientMode,
+          recipients_count: getRecipientCount(),
+          segment_id: selectedSegment?.id,
+          template_id: templateMode === 'select' ? selectedTemplate : undefined,
+          status: 'scheduled',
+          scheduled_at: scheduledDateTime,
+          metadata: {
+            selected_contacts: selectedContacts.map(c => c.id),
+            manual_recipients: manualRecipients,
+            external_template_id: templateMode === 'manual' ? templateId : undefined
+          }
+        });
+      }
+      alert('Email scheduled successfully!');
+      onClose();
+    } catch (error) {
+      console.error('Error scheduling email:', error);
+      setSendError('Failed to schedule email');
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  const handleSaveDraft = async () => {
+    if (!currentService) return;
+
+    try {
+      setIsSending(true);
+      const messageData = {
+        subject,
+        content_preview: content,
+        recipient_mode: recipientMode,
+        recipients_count: getRecipientCount(),
+        segment_id: selectedSegment?.id,
+        template_id: templateMode === 'select' ? selectedTemplate : undefined,
+        scheduled_at: scheduleMode === 'scheduled' && scheduleDate && scheduleTime ? `${scheduleDate}T${scheduleTime}:00Z` : undefined,
+        metadata: {
+          selected_contacts: selectedContacts.map(c => c.id),
+          manual_recipients: manualRecipients,
+          external_template_id: templateMode === 'manual' ? templateId : undefined
+        }
+      };
+
+      if (draftId) {
+        await messageService.updateMessage(draftId, messageData);
+      } else {
+        const newDraft = await messageService.createDraft(currentService.id, 'email', messageData);
+        setDraftId(newDraft.id);
+      }
+      alert('Draft saved successfully');
+    } catch (error) {
+      console.error('Error saving draft:', error);
+      setSendError('Failed to save draft');
+    } finally {
+      setIsSending(false);
+    }
   };
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className={`bg-white rounded-lg shadow-xl w-full overflow-hidden flex flex-col transition-all ${
-        isFullScreen ? 'max-w-full h-full m-0' : 'max-w-4xl max-h-[90vh]'
-      }`}>
+      <div className={`bg-white rounded-lg shadow-xl w-full overflow-hidden flex flex-col transition-all ${isFullScreen ? 'max-w-full h-full m-0' : 'max-w-4xl max-h-[90vh]'
+        }`}>
         <div className="flex items-center justify-between p-6 border-b border-gray-200">
           <div className="flex items-center gap-4">
             <div className="p-3 bg-blue-100 rounded-lg">
@@ -255,11 +373,10 @@ export function EmailEditor({ onClose, templates, contacts, segments }: EmailEdi
                   {activeApiKey && (
                     <>
                       <span className="text-xs text-gray-400">•</span>
-                      <span className={`text-xs font-medium px-2 py-1 rounded ${
-                        activeApiKey.type === 'live' 
-                          ? 'bg-red-100 text-red-700' 
-                          : 'bg-yellow-100 text-yellow-700'
-                      }`}>
+                      <span className={`text-xs font-medium px-2 py-1 rounded ${activeApiKey.type === 'live'
+                        ? 'bg-red-100 text-red-700'
+                        : 'bg-yellow-100 text-yellow-700'
+                        }`}>
                         {activeApiKey.type === 'live' ? 'Live' : 'Test'}
                       </span>
                     </>
@@ -318,7 +435,7 @@ export function EmailEditor({ onClose, templates, contacts, segments }: EmailEdi
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
                     <option value="">Select a template...</option>
-                    {(templates || []).map((template) => (
+                    {(templates || []).filter(template => template.type === 'email').map((template) => (
                       <option key={template.id} value={template.id}>
                         {template.name} - {template.description}
                       </option>
@@ -327,7 +444,7 @@ export function EmailEditor({ onClose, templates, contacts, segments }: EmailEdi
                   {selectedTemplate && (
                     <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded text-xs">
                       <p className="text-blue-800">
-                        Template loaded! Content and subject have been populated. 
+                        Template loaded! Content and subject have been populated.
                         You can edit them before sending.
                       </p>
                     </div>
@@ -600,7 +717,7 @@ export function EmailEditor({ onClose, templates, contacts, segments }: EmailEdi
                       <option value="">Select a segment...</option>
                       {(segments || []).map((segment) => (
                         <option key={segment.id} value={segment.id}>
-                          {segment.name} ({segment.contact_count} contacts)
+                          {segment.name} ({segment.contactCount || 0} contacts)
                         </option>
                       ))}
                     </select>
@@ -612,7 +729,7 @@ export function EmailEditor({ onClose, templates, contacts, segments }: EmailEdi
                       <div className="font-medium text-green-900">{selectedSegment.name}</div>
                       <div className="text-sm text-green-700">{selectedSegment.description}</div>
                       <div className="text-xs text-green-600 mt-1">
-                        {selectedSegment.contact_count} contacts will receive this email
+                        {selectedSegment.contactCount || 0} contacts will receive this email
                       </div>
                     </div>
                   )}
@@ -746,13 +863,14 @@ export function EmailEditor({ onClose, templates, contacts, segments }: EmailEdi
               Cancel
             </button>
             <div className="flex gap-3">
-              <button 
+              <button
+                onClick={handleSaveDraft}
                 disabled={isSending}
                 className="px-6 py-2 border border-gray-300 rounded-lg hover:bg-gray-100 transition-colors font-medium disabled:opacity-50"
               >
                 Save Draft
               </button>
-              <button 
+              <button
                 onClick={scheduleMode === 'now' ? handleSend : handleSchedule}
                 disabled={isSending}
                 className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium disabled:opacity-50"
