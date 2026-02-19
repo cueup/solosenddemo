@@ -145,5 +145,72 @@ export const messageService = {
             status: recipient.status,
             content: recipient.personalised_content?.parsed_content || recipient.messages.content_preview
         }));
+    },
+
+    async getDashboardStats(serviceId: string) {
+        const now = new Date();
+        const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
+        const sixtyDaysAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000).toISOString();
+
+        const getCount = async (type: string, start?: string, end?: string) => {
+            let query = supabase
+                .from('messages')
+                .select('*', { count: 'exact', head: true })
+                .eq('service_id', serviceId)
+                .eq('message_type', type)
+                .eq('status', 'delivered');
+
+            if (start) query = query.gte('sent_at', start);
+            if (end) query = query.lt('sent_at', end);
+
+            const { count, error } = await query;
+            if (error) throw error;
+            return count || 0;
+        };
+
+        const types = ['email', 'sms', 'letter'] as const;
+        const rates = { email: 0.15, sms: 0.10, letter: 1.30 };
+
+        const stats: any = {};
+
+        for (const type of types) {
+            const currentCount = await getCount(type, thirtyDaysAgo);
+            const prevCount = await getCount(type, sixtyDaysAgo, thirtyDaysAgo);
+            const lifetimeCount = await getCount(type);
+
+            let change = '0%';
+            if (prevCount > 0) {
+                const diff = ((currentCount - prevCount) / prevCount) * 100;
+                change = `${diff > 0 ? '+' : ''}${diff.toFixed(1)}%`;
+            } else if (currentCount > 0) {
+                change = '+100%';
+            }
+
+            const costSaved = (lifetimeCount * rates[type]).toLocaleString('en-GB', {
+                minimumFractionDigits: 0,
+                maximumFractionDigits: 0
+            });
+
+            stats[type] = {
+                value: lifetimeCount.toLocaleString(),
+                change,
+                costSaved
+            };
+        }
+
+        return stats;
+    },
+
+    async getRecentActivity(serviceId: string, limit: number = 5) {
+        const { data, error } = await supabase
+            .from('messages')
+            .select('*')
+            .eq('service_id', serviceId)
+            .neq('status', 'draft')
+            .order('created_at', { ascending: false })
+            .limit(limit);
+
+        if (error) throw error;
+        return data as Message[];
     }
 };

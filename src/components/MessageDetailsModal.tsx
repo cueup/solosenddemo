@@ -1,23 +1,15 @@
-import { X, Mail, MessageSquare, FileText, CheckCircle2, Clock, AlertCircle, Users } from 'lucide-react';
+import { X, Mail, MessageSquare, FileText, CheckCircle2, Clock, AlertCircle, Users, Calendar, Target } from 'lucide-react';
+import { Message } from '../services/messageService';
 
 interface MessageDetailsModalProps {
-  message: {
-    message_type: string;
-    subject: string;
-    recipients: string;
-    sent: string;
-    delivered?: string;
-    status: 'draft' | 'sent' | 'delivered' | 'failed' | 'processing' | 'pending' | 'cancelled';
-    content_preview: string;
-    templateUsed?: string;
-    scheduledFor?: string;
-  };
+  message: Message;
+  templateName?: string;
   onClose: () => void;
   onEdit?: () => void;
   onSendSimilar?: () => void;
 }
 
-export function MessageDetailsModal({ message, onClose, onEdit, onSendSimilar }: MessageDetailsModalProps) {
+export function MessageDetailsModal({ message, templateName, onClose, onEdit, onSendSimilar }: MessageDetailsModalProps) {
   const icons = {
     email: Mail,
     sms: MessageSquare,
@@ -32,6 +24,13 @@ export function MessageDetailsModal({ message, onClose, onEdit, onSendSimilar }:
           <div className="flex items-center gap-2">
             <div className="w-3 h-3 bg-gray-400 rounded-full" />
             <span className="text-sm font-medium text-gray-600">Draft</span>
+          </div>
+        );
+      case 'scheduled':
+        return (
+          <div className="flex items-center gap-2">
+            <Calendar size={16} className="text-purple-600" />
+            <span className="text-sm font-medium text-purple-600">Scheduled</span>
           </div>
         );
       case 'sent':
@@ -62,8 +61,35 @@ export function MessageDetailsModal({ message, onClose, onEdit, onSendSimilar }:
             <span className="text-sm font-medium text-yellow-600">Processing</span>
           </div>
         );
+      case 'pending':
+        return (
+          <div className="flex items-center gap-2">
+            <div className="w-3 h-3 bg-blue-400 rounded-full animate-pulse" />
+            <span className="text-sm font-medium text-blue-600">Pending</span>
+          </div>
+        );
+      case 'cancelled':
+        return (
+          <div className="flex items-center gap-2">
+            <X size={16} className="text-gray-500" />
+            <span className="text-sm font-medium text-gray-500">Cancelled</span>
+          </div>
+        );
       default:
         return null;
+    }
+  };
+
+  const formatDate = (dateString?: string) => {
+    if (!dateString) return '';
+    const date = new Date(dateString);
+    const now = new Date();
+    const isToday = date.toDateString() === now.toDateString();
+
+    if (isToday) {
+      return `Today at ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    } else {
+      return date.toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
     }
   };
 
@@ -111,59 +137,74 @@ export function MessageDetailsModal({ message, onClose, onEdit, onSendSimilar }:
                     <label className="block text-sm font-medium text-gray-700 mb-1">Recipients</label>
                     <div className="flex items-center gap-2">
                       <Users size={16} className="text-gray-400" />
-                      <span className="text-sm text-gray-900">{message.recipients} recipients</span>
+                      <span className="text-sm text-gray-900">{message.total_recipients.toLocaleString()} recipients</span>
                     </div>
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Sent</label>
-                    <p className="text-sm text-gray-900">{message.sent}</p>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Recipient Mode</label>
+                    <div className="flex items-center gap-2">
+                      <Target size={16} className="text-gray-400" />
+                      <span className="text-sm text-gray-900 capitalize">{message.recipient_mode}</span>
+                    </div>
                   </div>
 
-                  {message.delivered && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Created</label>
+                    <p className="text-sm text-gray-900">{formatDate(message.created_at)}</p>
+                  </div>
+
+                  {(message.sent_at || message.status === 'sent' || message.status === 'delivered') && (
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Delivered</label>
-                      <p className="text-sm text-gray-900">{message.delivered} delivered</p>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Sent At</label>
+                      <p className="text-sm text-gray-900">{formatDate(message.sent_at)}</p>
                     </div>
                   )}
 
-                  {message.templateUsed && (
+                  {templateName && (
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Template Used</label>
-                      <p className="text-sm text-gray-900">{message.templateUsed}</p>
+                      <p className="text-sm text-gray-900">{templateName}</p>
                     </div>
                   )}
 
-                  {message.scheduledFor && (
+                  {message.scheduled_at && (
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Scheduled For</label>
-                      <p className="text-sm text-gray-900">{message.scheduledFor}</p>
+                      <div className="flex items-center gap-2">
+                        <Calendar size={16} className="text-gray-400" />
+                        <p className="text-sm text-gray-900">{formatDate(message.scheduled_at)}</p>
+                      </div>
                     </div>
                   )}
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Current Status</label>
                     {getStatusDisplay()}
                   </div>
                 </div>
               </div>
 
-              {message.status === 'delivered' && (
+              {(message.status === 'delivered' || message.status === 'sent' || message.status === 'failed') && (
                 <div>
                   <h4 className="text-md font-semibold text-gray-900 mb-3">Delivery Statistics</h4>
                   <div className="space-y-2">
                     <div className="flex justify-between text-sm">
+                      <span className="text-gray-600">Total Recipients</span>
+                      <span className="text-gray-900 font-medium">{message.total_recipients.toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
                       <span className="text-gray-600">Delivered</span>
-                      <span className="text-green-600 font-medium">{message.delivered}</span>
+                      <span className="text-green-600 font-medium">{message.recipients_count.toLocaleString()}</span>
                     </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-600">Failed</span>
-                      <span className="text-red-600 font-medium">2</span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-600">Pending</span>
-                      <span className="text-yellow-600 font-medium">0</span>
-                    </div>
+                    {message.total_recipients > message.recipients_count && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-600">Attempted/Pending</span>
+                        <span className="text-yellow-600 font-medium">
+                          {(message.total_recipients - message.recipients_count).toLocaleString()}
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}

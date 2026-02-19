@@ -23,7 +23,7 @@ export function StatCard({ icon: Icon, title, value, change, color, costSaved }:
       <h3 className="text-gray-600 text-sm mb-1">{title}</h3>
       <p className="text-3xl font-bold text-gray-900 mb-3">{value}</p>
       <div className="pt-3 border-t border-gray-200">
-        <p className="text-xs text-gray-500 mb-0.5">Cost saved vs traditional services</p>
+        <p className="text-xs text-gray-500 mb-0.5">Cost saved vs traditional services*</p>
         <p className="text-lg font-semibold text-green-600">£{costSaved}</p>
       </div>
     </div>

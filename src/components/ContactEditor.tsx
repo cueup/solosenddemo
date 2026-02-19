@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { X, Save, Mail, Phone, MapPin, Tag, User, Edit3 } from 'lucide-react';
 import { Contact } from '../services/contactService';
+import { messageService } from '../services/messageService';
 import { contactPreferenceService, ContactPreferences } from '../services/contactPreferenceService';
 
 interface ContactEditorProps {
@@ -18,6 +19,7 @@ export function ContactEditor({ contact, onClose, onSave }: ContactEditorProps) 
     sms: true,
     letter: true
   });
+  const [stats, setStats] = useState({ total: 0, delivered: 0 });
 
   useEffect(() => {
     if (contact.id) {
@@ -25,6 +27,14 @@ export function ContactEditor({ contact, onClose, onSave }: ContactEditorProps) 
         if (prefs) {
           setPreferences(prefs);
         }
+      });
+
+      // Fetch communication statistics
+      messageService.getMessagesForContact(contact.id).then(activities => {
+        setStats({
+          total: activities.length,
+          delivered: activities.filter(a => a.status === 'delivered').length
+        });
       });
     }
   }, [contact.id]);
@@ -135,14 +145,14 @@ export function ContactEditor({ contact, onClose, onSave }: ContactEditorProps) 
             Personal Information
           </h3>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+            <div className="md:col-span-1">
               <label className="block text-sm font-medium text-gray-700 mb-2">Title</label>
               {isEditing ? (
                 <select
                   value={editedContact.title}
                   onChange={(e) => setEditedContact({ ...editedContact, title: e.target.value })}
-                  className="w-1/3 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="">Select...</option>
                   <option value="Mr">Mr</option>
@@ -157,35 +167,34 @@ export function ContactEditor({ contact, onClose, onSave }: ContactEditorProps) 
               )}
             </div>
 
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">First Name</label>
-                {isEditing ? (
-                  <input
-                    placeholder="First Name"
-                    type="text"
-                    value={editedContact.first_name}
-                    onChange={(e) => setEditedContact({ ...editedContact, first_name: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                ) : (
-                  <p className="px-3 py-2 bg-gray-50 rounded-lg text-gray-900">{contact.first_name}</p>
-                )}
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Last Name</label>
-                {isEditing ? (
-                  <input
-                    placeholder="Last Name"
-                    type="text"
-                    value={editedContact.last_name}
-                    onChange={(e) => setEditedContact({ ...editedContact, last_name: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                ) : (
-                  <p className="px-3 py-2 bg-gray-50 rounded-lg text-gray-900">{contact.last_name}</p>
-                )}
-              </div>
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-gray-700 mb-2">First Name</label>
+              {isEditing ? (
+                <input
+                  placeholder="First Name"
+                  type="text"
+                  value={editedContact.first_name}
+                  onChange={(e) => setEditedContact({ ...editedContact, first_name: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              ) : (
+                <p className="px-3 py-2 bg-gray-50 rounded-lg text-gray-900">{contact.first_name}</p>
+              )}
+            </div>
+
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-gray-700 mb-2">Last Name</label>
+              {isEditing ? (
+                <input
+                  placeholder="Last Name"
+                  type="text"
+                  value={editedContact.last_name}
+                  onChange={(e) => setEditedContact({ ...editedContact, last_name: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              ) : (
+                <p className="px-3 py-2 bg-gray-50 rounded-lg text-gray-900">{contact.last_name}</p>
+              )}
             </div>
           </div>
         </div>
@@ -402,11 +411,11 @@ export function ContactEditor({ contact, onClose, onSave }: ContactEditorProps) 
 
             <div className="grid grid-cols-2 gap-4">
               <div className="bg-blue-50 rounded-lg p-4 text-center">
-                <p className="text-2xl font-bold text-blue-600">0</p>
+                <p className="text-2xl font-bold text-blue-600">{stats.total}</p>
                 <p className="text-sm text-blue-800">Total Messages</p>
               </div>
               <div className="bg-green-50 rounded-lg p-4 text-center">
-                <p className="text-2xl font-bold text-green-600">0</p>
+                <p className="text-2xl font-bold text-green-600">{stats.delivered}</p>
                 <p className="text-sm text-green-800">Delivered</p>
               </div>
             </div>

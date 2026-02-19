@@ -59,6 +59,8 @@ export function Dashboard({ user, onSignOut }: { user: any; onSignOut: () => voi
   const [templates, setTemplates] = useState<Template[]>([]);
   const [allContacts, setAllContacts] = useState<Contact[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [messageSearchQuery, setMessageSearchQuery] = useState('');
+  const [templateSearchQuery, setTemplateSearchQuery] = useState('');
   const [contactPreferences, setContactPreferences] = useState<Record<string, ContactPreferences>>({});
   const [rawSegments, setRawSegments] = useState<Segment[]>([]);
   const [showContactEditor, setShowContactEditor] = useState(false);
@@ -73,6 +75,11 @@ export function Dashboard({ user, onSignOut }: { user: any; onSignOut: () => voi
     metadata?: any
   } | undefined>(undefined);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [dashboardStats, setDashboardStats] = useState<{
+    email: { value: string; change: string; costSaved: string };
+    sms: { value: string; change: string; costSaved: string };
+    letter: { value: string; change: string; costSaved: string };
+  } | null>(null);
 
   const segments = useMemo(() => {
     return rawSegments.map(segment => ({
@@ -80,6 +87,37 @@ export function Dashboard({ user, onSignOut }: { user: any; onSignOut: () => voi
       contactCount: segmentService.getMatchingContacts(segment.filters, allContacts, contactPreferences).length
     }));
   }, [rawSegments, allContacts, contactPreferences]);
+
+  const filteredMessages = useMemo(() => {
+    if (!messageSearchQuery) return messages;
+    const search = messageSearchQuery.toLowerCase();
+    return messages.filter(m =>
+      (m.subject?.toLowerCase().includes(search)) ||
+      (m.content_preview?.toLowerCase().includes(search)) ||
+      (m.message_type.toLowerCase().includes(search)) ||
+      (m.status.toLowerCase().includes(search))
+    );
+  }, [messages, messageSearchQuery]);
+
+  const filteredTemplates = useMemo(() => {
+    if (!templateSearchQuery) return templates;
+    const search = templateSearchQuery.toLowerCase();
+    return templates.filter(t =>
+      (t.name?.toLowerCase().includes(search)) ||
+      (t.subject?.toLowerCase().includes(search)) ||
+      (t.content?.toLowerCase().includes(search)) ||
+      (t.type.toLowerCase().includes(search))
+    );
+  }, [templates, templateSearchQuery]);
+
+  const contactStats = useMemo(() => {
+    return {
+      total: allContacts.length,
+      email: allContacts.filter(c => c.email).length,
+      phone: allContacts.filter(c => c.phone).length,
+      address: allContacts.filter(c => c.address_line_1 && c.postcode).length
+    };
+  }, [allContacts]);
 
   const handleEditMessage = () => {
     if (!selectedMessage) return;
@@ -113,8 +151,19 @@ export function Dashboard({ user, onSignOut }: { user: any; onSignOut: () => voi
       loadContacts();
       loadSegments();
       loadMessages();
+      loadDashboardStats();
     }
   }, [currentService]);
+
+  const loadDashboardStats = async () => {
+    if (!currentService) return;
+    try {
+      const stats = await messageService.getDashboardStats(currentService.id);
+      setDashboardStats(stats);
+    } catch (error) {
+      console.error('Error loading dashboard stats:', error);
+    }
+  };
 
   const loadMessages = async () => {
     if (!currentService) return;
@@ -178,6 +227,24 @@ export function Dashboard({ user, onSignOut }: { user: any; onSignOut: () => voi
     } else {
       return date.toLocaleDateString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
     }
+  };
+
+  // Helper to get relative time
+  const getTimeAgo = (dateString: string) => {
+    if (!dateString) return '';
+    const date = new Date(dateString);
+    const now = new Date();
+    const seconds = Math.floor((now.getTime() - date.getTime()) / 1000);
+
+    if (seconds < 60) return 'Just now';
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes} minute${minutes === 1 ? '' : 's'} ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`;
+    const days = Math.floor(hours / 24);
+    if (days < 7) return `${days} day${days === 1 ? '' : 's'} ago`;
+
+    return date.toLocaleDateString([], { day: 'numeric', month: 'short' });
   };
 
   const availableTags = useMemo(() => {
@@ -491,26 +558,26 @@ export function Dashboard({ user, onSignOut }: { user: any; onSignOut: () => voi
               <StatCard
                 icon={Mail}
                 title="Emails Sent"
-                value="24,856"
-                change="+12.5%"
+                value={dashboardStats?.email.value || '0'}
+                change={dashboardStats?.email.change || '0%'}
                 color="blue"
-                costSaved="12,428"
+                costSaved={dashboardStats?.email.costSaved || '0'}
               />
               <StatCard
                 icon={MessageSquare}
                 title="Text Messages"
-                value="8,234"
-                change="+8.2%"
+                value={dashboardStats?.sms.value || '0'}
+                change={dashboardStats?.sms.change || '0%'}
                 color="green"
-                costSaved="4,117"
+                costSaved={dashboardStats?.sms.costSaved || '0'}
               />
               <StatCard
                 icon={FileText}
                 title="Letters Sent"
-                value="1,456"
-                change="+5.1%"
+                value={dashboardStats?.letter.value || '0'}
+                change={dashboardStats?.letter.change || '0%'}
                 color="orange"
-                costSaved="1,165"
+                costSaved={dashboardStats?.letter.costSaved || '0'}
               />
             </div>
 
@@ -531,30 +598,23 @@ export function Dashboard({ user, onSignOut }: { user: any; onSignOut: () => voi
               <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
                 <h3 className="text-lg font-semibold mb-4">Recent Activity</h3>
                 <div className="space-y-4">
-                  <ActivityItem
-                    type="email"
-                    title="Password reset notification"
-                    time="5 minutes ago"
-                    status="delivered"
-                  />
-                  <ActivityItem
-                    type="sms"
-                    title="Appointment reminder"
-                    time="1 hour ago"
-                    status="delivered"
-                  />
-                  <ActivityItem
-                    type="letter"
-                    title="Annual statement"
-                    time="2 hours ago"
-                    status="processing"
-                  />
-                  <ActivityItem
-                    type="email"
-                    title="Welcome message"
-                    time="3 hours ago"
-                    status="delivered"
-                  />
+                  {messages
+                    .filter(m => m.status !== 'draft')
+                    .slice(0, 4)
+                    .map((message) => (
+                      <ActivityItem
+                        key={message.id}
+                        type={message.message_type}
+                        title={message.subject || (message.message_type === 'sms' ? 'Text Message' : 'No Subject')}
+                        time={getTimeAgo(message.sent_at || message.created_at)}
+                        status={message.status}
+                      />
+                    ))}
+                  {messages.filter(m => m.status !== 'draft').length === 0 && (
+                    <div className="text-center py-6">
+                      <p className="text-sm text-gray-500">No recent activity</p>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -586,13 +646,15 @@ export function Dashboard({ user, onSignOut }: { user: any; onSignOut: () => voi
                   <input
                     type="text"
                     placeholder="Search messages..."
+                    value={messageSearchQuery}
+                    onChange={(e) => setMessageSearchQuery(e.target.value)}
                     className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
               </div>
 
               <div className="divide-y divide-gray-200">
-                {messages.map((message) => (
+                {filteredMessages.map((message) => (
                   <MessageRow
                     key={message.id}
                     type={message.message_type}
@@ -604,6 +666,13 @@ export function Dashboard({ user, onSignOut }: { user: any; onSignOut: () => voi
                     onClick={() => setSelectedMessage(message)}
                   />
                 ))}
+                {filteredMessages.length === 0 && (
+                  <div className="p-12 text-center">
+                    <Search size={48} className="mx-auto text-gray-300 mb-4" />
+                    <p className="text-gray-500 font-medium">No messages found</p>
+                    <p className="text-sm text-gray-400 mt-1">Try adjusting your search query</p>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -651,13 +720,15 @@ export function Dashboard({ user, onSignOut }: { user: any; onSignOut: () => voi
                   <input
                     type="text"
                     placeholder="Search templates..."
+                    value={templateSearchQuery}
+                    onChange={(e) => setTemplateSearchQuery(e.target.value)}
                     className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
               </div>
 
               <div className="divide-y divide-gray-200">
-                {templates.map((template) => (
+                {filteredTemplates.map((template) => (
                   <TemplateRow
                     key={template.id}
                     template={template}
@@ -713,19 +784,19 @@ export function Dashboard({ user, onSignOut }: { user: any; onSignOut: () => voi
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
                 <p className="text-sm text-gray-600 mb-1">Total Contacts</p>
-                <p className="text-2xl font-bold text-gray-900">8,456</p>
+                <p className="text-2xl font-bold text-gray-900">{contactStats.total.toLocaleString()}</p>
               </div>
               <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
                 <p className="text-sm text-gray-600 mb-1">Email Contacts</p>
-                <p className="text-2xl font-bold text-gray-900">7,234</p>
+                <p className="text-2xl font-bold text-gray-900">{contactStats.email.toLocaleString()}</p>
               </div>
               <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
                 <p className="text-sm text-gray-600 mb-1">Phone Contacts</p>
-                <p className="text-2xl font-bold text-gray-900">6,891</p>
+                <p className="text-2xl font-bold text-gray-900">{contactStats.phone.toLocaleString()}</p>
               </div>
               <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
                 <p className="text-sm text-gray-600 mb-1">Address Contacts</p>
-                <p className="text-2xl font-bold text-gray-900">5,432</p>
+                <p className="text-2xl font-bold text-gray-900">{contactStats.address.toLocaleString()}</p>
               </div>
             </div>
 
@@ -882,6 +953,7 @@ export function Dashboard({ user, onSignOut }: { user: any; onSignOut: () => voi
       {selectedMessage && (
         <MessageDetailsModal
           message={selectedMessage}
+          templateName={templates.find(t => t.id === selectedMessage.template_id)?.name}
           onClose={() => setSelectedMessage(null)}
           onEdit={handleEditMessage}
           onSendSimilar={handleSendSimilarMessage}
